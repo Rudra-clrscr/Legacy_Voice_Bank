@@ -65,12 +65,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(securi
     Validates the Supabase JWT token and returns user details.
     """
     token = credentials.credentials
-    client = get_supabase()
     try:
+        client = get_supabase()
         res = client.auth.get_user(token)
         if not res or not res.user:
             raise HTTPException(status_code=401, detail="Authentication failed: user not found")
         return res.user
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid or expired session: {str(e)}")
 
