@@ -1,0 +1,32 @@
+# Data and large files
+*.csv
+*.pkl
+data/raw/
+answers/
+r4.2/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# Node
+node_modules/
+*.node
+
+# Binaries
+*.dll
+*.exe
+
+# UI/Graph outputs
+graph.html
+
+# Model checkpoints
+!models_saved/
+!models_saved/*.pkl
+
+# Secrets — never commit
+.env
+
