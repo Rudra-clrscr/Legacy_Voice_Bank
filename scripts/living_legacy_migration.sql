@@ -6,7 +6,11 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- 1. Profiles (linked to Supabase Auth)
+-- ────────────────────────────────────────────────────────────
+-- 1. TABLE DEFINITIONS (Ordered by foreign key dependencies)
+-- ────────────────────────────────────────────────────────────
+
+-- 1.1 Profiles (linked to Supabase Auth)
 CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT UNIQUE NOT NULL,
@@ -15,12 +19,18 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS on profiles
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
-CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+-- 1.2 Recipients (family members added by narrator)
+CREATE TABLE IF NOT EXISTS public.recipients (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    relationship TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_patient_recipient_email UNIQUE (patient_id, email)
+);
 
--- 2. Sessions (narrator sessions)
+-- 1.3 Sessions (narrator sessions)
 CREATE TABLE IF NOT EXISTS public.sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     patient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -30,20 +40,7 @@ CREATE TABLE IF NOT EXISTS public.sessions (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS on sessions
-ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Patients can manage their own sessions" ON public.sessions 
-    FOR ALL USING (auth.uid() = patient_id);
-CREATE POLICY "Recipients can view sessions of patients they are connected to" ON public.sessions
-    FOR SELECT USING (
-        EXISTS (
-            SELECT 1 FROM public.recipients r 
-            WHERE r.patient_id = public.sessions.patient_id 
-            AND r.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
-        )
-    );
-
--- 3. Clips (voice recordings, transcripts, and rules)
+-- 1.4 Clips (voice recordings, transcripts, and rules)
 CREATE TABLE IF NOT EXISTS public.clips (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID NOT NULL REFERENCES public.sessions(id) ON DELETE CASCADE,
@@ -58,8 +55,65 @@ CREATE TABLE IF NOT EXISTS public.clips (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Enable RLS on clips
+-- 1.5 Access Grants (individual clip sharing)
+CREATE TABLE IF NOT EXISTS public.access_grants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    clip_id UUID NOT NULL REFERENCES public.clips(id) ON DELETE CASCADE,
+    recipient_id UUID NOT NULL REFERENCES public.recipients(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT unique_clip_recipient UNIQUE (clip_id, recipient_id)
+);
+
+-- 1.6 Collaboration Items (family posts, photos, memories)
+CREATE TABLE IF NOT EXISTS public.collaboration_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    patient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+    author_name TEXT,
+    type TEXT NOT NULL CHECK (type IN ('photo', 'note', 'memory')) DEFAULT 'note',
+    content TEXT NOT NULL,
+    media_url TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ────────────────────────────────────────────────────────────
+-- 2. ROW LEVEL SECURITY (RLS) ACTIVATION
+-- ────────────────────────────────────────────────────────────
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.recipients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.access_grants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.collaboration_items ENABLE ROW LEVEL SECURITY;
+
+-- ────────────────────────────────────────────────────────────
+-- 3. SECURITY POLICIES
+-- ────────────────────────────────────────────────────────────
+
+-- 3.1 Profiles Policies
+CREATE POLICY "Public profiles are viewable by everyone" ON public.profiles FOR SELECT USING (true);
+CREATE POLICY "Users can update their own profile" ON public.profiles FOR UPDATE USING (auth.uid() = id);
+
+-- 3.2 Recipients Policies
+CREATE POLICY "Patients can manage their recipients" ON public.recipients 
+    FOR ALL USING (auth.uid() = patient_id);
+CREATE POLICY "Recipients can view their own connection record" ON public.recipients
+    FOR SELECT USING (email = (SELECT email FROM public.profiles WHERE id = auth.uid()));
+
+-- 3.3 Sessions Policies
+CREATE POLICY "Patients can manage their own sessions" ON public.sessions 
+    FOR ALL USING (auth.uid() = patient_id);
+CREATE POLICY "Recipients can view sessions of patients they are connected to" ON public.sessions
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.recipients r 
+            WHERE r.patient_id = public.sessions.patient_id 
+            AND r.email = (SELECT email FROM public.profiles WHERE id = auth.uid())
+        )
+    );
+
+-- 3.4 Clips Policies
 CREATE POLICY "Patients can manage their own clips" ON public.clips 
     FOR ALL USING (auth.uid() = patient_id);
 CREATE POLICY "Recipients can view clips granted to them" ON public.clips
@@ -82,35 +136,7 @@ CREATE POLICY "Recipients can view clips granted to them" ON public.clips
         )
     );
 
--- 4. Recipients (family members added by narrator)
-CREATE TABLE IF NOT EXISTS public.recipients (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    patient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    email TEXT NOT NULL,
-    relationship TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT unique_patient_recipient_email UNIQUE (patient_id, email)
-);
-
--- Enable RLS on recipients
-ALTER TABLE public.recipients ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Patients can manage their recipients" ON public.recipients 
-    FOR ALL USING (auth.uid() = patient_id);
-CREATE POLICY "Recipients can view their own connection record" ON public.recipients
-    FOR SELECT USING (email = (SELECT email FROM public.profiles WHERE id = auth.uid()));
-
--- 5. Access Grants (individual clip sharing)
-CREATE TABLE IF NOT EXISTS public.access_grants (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    clip_id UUID NOT NULL REFERENCES public.clips(id) ON DELETE CASCADE,
-    recipient_id UUID NOT NULL REFERENCES public.recipients(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT unique_clip_recipient UNIQUE (clip_id, recipient_id)
-);
-
--- Enable RLS on access grants
-ALTER TABLE public.access_grants ENABLE ROW LEVEL SECURITY;
+-- 3.5 Access Grants Policies
 CREATE POLICY "Patients can manage access grants" ON public.access_grants
     FOR ALL USING (
         EXISTS (
@@ -128,20 +154,7 @@ CREATE POLICY "Recipients can view access grants for themselves" ON public.acces
         )
     );
 
--- 6. Collaboration Items (family posts, photos, memories)
-CREATE TABLE IF NOT EXISTS public.collaboration_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    patient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-    author_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
-    author_name TEXT,
-    type TEXT NOT NULL CHECK (type IN ('photo', 'note', 'memory')) DEFAULT 'note',
-    content TEXT NOT NULL,
-    media_url TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Enable RLS on collaboration items
-ALTER TABLE public.collaboration_items ENABLE ROW LEVEL SECURITY;
+-- 3.6 Collaboration Items Policies
 CREATE POLICY "Connected users can manage collaboration items" ON public.collaboration_items
     FOR ALL USING (
         auth.uid() = patient_id 
@@ -153,9 +166,10 @@ CREATE POLICY "Connected users can manage collaboration items" ON public.collabo
         )
     );
 
--- ============================================================
--- Profile trigger for automatic registration creation
--- ============================================================
+-- ────────────────────────────────────────────────────────────
+-- 4. PROFILE TRIGGER FOR AUTOMATIC REGISTRATION
+-- ────────────────────────────────────────────────────────────
+
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
