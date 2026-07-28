@@ -114,8 +114,9 @@ def upload_audio_to_supabase(file_name: str, file_bytes: bytes, mime_type: str) 
         return public_url
     except Exception as e:
         print(f"[Supabase Storage] Error: {e}. Falling back to local media path.")
-        # Local fallback
-        local_path = os.path.join("data/audio", file_name)
+        # Local fallback (only /tmp is writable on Vercel's serverless filesystem)
+        base_dir = "/tmp/audio" if IS_VERCEL else "data/audio"
+        local_path = os.path.join(base_dir, file_name)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         with open(local_path, "wb") as f:
             f.write(file_bytes)
@@ -295,10 +296,10 @@ async def upload_clip(
     file_ext = os.path.splitext(file.filename)[1] or ".wav"
     file_name = f"{current_user.id}/{file_uuid}{file_ext}"
 
-    # Upload to Supabase Storage or local path
-    audio_url = upload_audio_to_supabase(file_name, audio_bytes, file.content_type)
-
     try:
+        # Upload to Supabase Storage or local path
+        audio_url = upload_audio_to_supabase(file_name, audio_bytes, file.content_type)
+
         # Save clip database record
         insert_data = {
             "session_id": session_id,
