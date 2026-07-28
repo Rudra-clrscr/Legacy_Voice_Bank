@@ -29,7 +29,7 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
         # Base64 encode the audio data
         base64_audio = base64.b64encode(audio_bytes).decode("utf-8")
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "contents": [
@@ -112,7 +112,7 @@ JSON Output structure:
 """
 
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
         
         payload = {
             "contents": [
