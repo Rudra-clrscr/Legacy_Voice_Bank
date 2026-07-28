@@ -49,8 +49,13 @@ app.add_middleware(
 )
 
 # Create static media folder for local fallback
-os.makedirs("data/audio", exist_ok=True)
-app.mount("/api/media", StaticFiles(directory="data/audio"), name="media")
+IS_VERCEL = "VERCEL" in os.environ
+if IS_VERCEL:
+    os.makedirs("/tmp/audio", exist_ok=True)
+    app.mount("/api/media", StaticFiles(directory="/tmp/audio"), name="media")
+else:
+    os.makedirs("data/audio", exist_ok=True)
+    app.mount("/api/media", StaticFiles(directory="data/audio"), name="media")
 
 # Security Dependency
 security = HTTPBearer()
