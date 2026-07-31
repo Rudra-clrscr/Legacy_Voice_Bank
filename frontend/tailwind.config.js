@@ -7,17 +7,17 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
-        serif: ['Playfair Display', 'serif'],
+        sans: ['"Space Grotesk"', 'sans-serif'],
+        serif: ['Fraunces', 'serif'],
       },
       colors: {
-        background: '#12100E', // Deep rich espresso
-        surface: '#1C1816',    // Warm dark coffee
-        primary: '#F5EFEB',    // Cream soft white
-        secondary: '#B8AFAB',  // Warm taupe gray
-        accent: '#C5A880',     // Timeless satin gold
-        danger: '#E11D48',     // Soft rose red
-        border: '#2E2724'      // Warm dark border
+        background: '#F4E5A8', // Butter yellow
+        surface: '#FDF5D7',     // Soft cream
+        primary: '#2A160D',     // Chocolate brown
+        secondary: '#6C4A31',   // Warm cocoa
+        accent: '#5A301E',      // Deep cocoa
+        danger: '#B42318',      // Burnt red
+        border: '#2A160D'       // Hard brutalist outline
       }
     },
   },
