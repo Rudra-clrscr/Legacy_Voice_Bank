@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Heart, Loader2 } from 'lucide-react';
+import posthog from '../lib/posthog';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -38,6 +39,7 @@ export default function Login() {
         });
         error = signUpError;
         if (!error) {
+          posthog.capture('account_registered', { role });
           toast.success('Account created! Please check your email to confirm, then sign in.');
           setIsLogin(true);
           setLoading(false);
@@ -47,6 +49,7 @@ export default function Login() {
 
       if (error) throw error;
       if (isLogin) {
+        posthog.capture('login_completed');
         toast.success('Logged in successfully!');
         navigate('/dashboard');
       }

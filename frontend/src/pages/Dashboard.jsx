@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
+import posthog from '../lib/posthog';
 import {
   Mic, MicOff, Play, Pause, Save, Plus, Trash2, Edit3,
   Lock, Unlock, Clock, UserPlus, Users, Volume2, Heart,
@@ -317,6 +318,7 @@ function RecordingStudio({ getHeaders }) {
 
       recorder.start();
       setIsRecording(true);
+      posthog.capture('recording_started', { theme: selectedTheme.id });
       
       // Start browser transcript capture
       if (recognitionRef.current) {
@@ -332,6 +334,10 @@ function RecordingStudio({ getHeaders }) {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      posthog.capture('recording_completed', {
+        theme: selectedTheme.id,
+        recording_duration_seconds: recordingTime
+      });
       
       // Stop browser transcript capture
       if (recognitionRef.current) {
@@ -354,6 +360,7 @@ function RecordingStudio({ getHeaders }) {
         }
       });
       setTranscript(res.data.transcript);
+      posthog.capture('transcription_completed');
       toast.success('Gemini generated the transcript!');
     } catch (err) {
       console.error(err);
@@ -421,6 +428,11 @@ function RecordingStudio({ getHeaders }) {
         }
       });
 
+      posthog.capture('clip_saved', {
+        theme: selectedTheme.id,
+        release_rule: releaseRule,
+        visibility
+      });
       toast.success('Clip successfully preserved in The Vault!');
       
       // Reset form
@@ -703,6 +715,7 @@ function VaultView({ getHeaders }) {
     if (!window.confirm("Are you sure you want to delete this clip from your legacy? This action is permanent.")) return;
     try {
       await axios.delete(`${API}/api/clips/${id}`, getHeaders());
+      posthog.capture('clip_deleted');
       toast.success('Clip removed successfully.');
       fetchClips();
     } catch (err) {
@@ -727,6 +740,10 @@ function VaultView({ getHeaders }) {
         release_rule: editRule,
         visibility: editVisibility
       }, getHeaders());
+      posthog.capture('clip_updated', {
+        release_rule: editRule,
+        visibility: editVisibility
+      });
       toast.success('Clip updated.');
       setEditingClip(null);
       fetchClips();
@@ -908,6 +925,7 @@ function RecipientsView({ getHeaders }) {
     e.preventDefault();
     try {
       await axios.post(`${API}/api/recipients`, { name, email, relationship }, getHeaders());
+      posthog.capture('recipient_added');
       toast.success(`${name} added to your legacy circle.`);
       setName('');
       setEmail('');
@@ -922,6 +940,7 @@ function RecipientsView({ getHeaders }) {
     if (!window.confirm("Remove this recipient? They will lose access to any custom shared clips.")) return;
     try {
       await axios.delete(`${API}/api/recipients/${id}`, getHeaders());
+      posthog.capture('recipient_removed');
       toast.success('Recipient removed.');
       fetchRecipients();
     } catch (err) {
@@ -1042,6 +1061,10 @@ function AskThemView({ getHeaders }) {
         ...getHeaders()
       });
       setResult(res.data);
+      posthog.capture('archive_search_completed', {
+        result_found: Boolean(res.data.found),
+        retrieval_method: res.data.method || 'none'
+      });
     } catch (err) {
       toast.error('Search failed.');
     } finally {
@@ -1225,6 +1248,7 @@ function CollabWallView({ getHeaders, role }) {
 
     try {
       await axios.post(`${API}/api/collab`, { content, type, media_url: mediaUrl }, getHeaders());
+      posthog.capture('collaboration_post_created', { post_type: type });
       toast.success('Memory posted to the wall.');
       setContent('');
       setMediaUrl('');
