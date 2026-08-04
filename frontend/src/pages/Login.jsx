@@ -4,6 +4,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Heart, Loader2 } from 'lucide-react';
 import posthog from '../lib/posthog';
+import axios from 'axios';
+
+const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -21,8 +24,19 @@ export default function Login() {
     try {
       let error;
       if (isLogin) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
         error = signInError;
+
+        if (!error && authData?.session?.access_token) {
+          // Sync selected role to backend profile
+          try {
+            await axios.put(`${API}/api/auth/role`, { role }, {
+              headers: { Authorization: `Bearer ${authData.session.access_token}` }
+            });
+          } catch (roleErr) {
+            console.error('Non-blocking: Failed to sync selected role on sign-in:', roleErr);
+          }
+        }
       } else {
         if (!name) {
           throw new Error('Name is required to sign up.');
@@ -88,54 +102,52 @@ export default function Login() {
         <form onSubmit={handleAuth} className="space-y-4">
           
           {!isLogin && (
-            <>
-              <div>
-                <label className="block text-[10px] text-secondary uppercase tracking-widest mb-1.5 font-semibold">
-                  Your Full Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Eleanor Vance"
-                  className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40 transition-colors"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] text-secondary uppercase tracking-widest mb-1.5 font-semibold">
-                  I want to join as a:
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setRole('narrator')}
-                    className={`py-2 px-3 rounded border text-xs text-left font-medium transition-all ${
-                      role === 'narrator'
-                        ? 'border-accent bg-accent/5 text-accent'
-                        : 'border-border bg-background text-secondary hover:text-primary'
-                    }`}
-                  >
-                    <div className="font-semibold text-primary">Narrator</div>
-                    <div className="text-[10px] opacity-80 mt-0.5">I want to record my own stories</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setRole('recipient')}
-                    className={`py-2 px-3 rounded border text-xs text-left font-medium transition-all ${
-                      role === 'recipient'
-                        ? 'border-accent bg-accent/5 text-accent'
-                        : 'border-border bg-background text-secondary hover:text-primary'
-                    }`}
-                  >
-                    <div className="font-semibold text-primary">Recipient</div>
-                    <div className="text-[10px] opacity-80 mt-0.5">I want to view a loved one's vault</div>
-                  </button>
-                </div>
-              </div>
-            </>
+            <div>
+              <label className="block text-[10px] text-secondary uppercase tracking-widest mb-1.5 font-semibold">
+                Your Full Name
+              </label>
+              <input
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Eleanor Vance"
+                className="w-full bg-background border border-border rounded px-3 py-2.5 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40 transition-colors"
+              />
+            </div>
           )}
+
+          <div>
+            <label className="block text-[10px] text-secondary uppercase tracking-widest mb-1.5 font-semibold">
+              {isLogin ? 'I want to sign in as a:' : 'I want to join as a:'}
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setRole('narrator')}
+                className={`py-2 px-3 rounded border text-xs text-left font-medium transition-all ${
+                  role === 'narrator'
+                    ? 'border-accent bg-accent/5 text-accent'
+                    : 'border-border bg-background text-secondary hover:text-primary'
+                }`}
+              >
+                <div className="font-semibold text-primary">Narrator</div>
+                <div className="text-[10px] opacity-80 mt-0.5">I want to record my own stories</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRole('recipient')}
+                className={`py-2 px-3 rounded border text-xs text-left font-medium transition-all ${
+                  role === 'recipient'
+                    ? 'border-accent bg-accent/5 text-accent'
+                    : 'border-border bg-background text-secondary hover:text-primary'
+                }`}
+              >
+                <div className="font-semibold text-primary">Recipient</div>
+                <div className="text-[10px] opacity-80 mt-0.5">I want to view a loved one's vault</div>
+              </button>
+            </div>
+          </div>
 
           <div>
             <label className="block text-[10px] text-secondary uppercase tracking-widest mb-1.5 font-semibold">

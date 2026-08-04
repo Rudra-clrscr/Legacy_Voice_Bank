@@ -156,9 +156,23 @@ def update_user_role(body: dict, current_user=Depends(get_current_user)):
         
     client = get_supabase()
     try:
-        resp = client.table("profiles").update({"role": role}).eq("id", current_user.id).execute()
+        # Check if profile exists
+        profile_resp = client.table("profiles").select("*").eq("id", current_user.id).execute()
+        if not profile_resp.data:
+            # If profile is missing, create it
+            name = current_user.user_metadata.get("name", "User") if hasattr(current_user, "user_metadata") else "User"
+            resp = client.table("profiles").insert({
+                "id": current_user.id,
+                "email": current_user.email,
+                "name": name,
+                "role": role
+            }).execute()
+        else:
+            # Update existing profile
+            resp = client.table("profiles").update({"role": role}).eq("id", current_user.id).execute()
+            
         if not resp.data:
-            raise HTTPException(status_code=404, detail="Profile not found")
+            raise HTTPException(status_code=404, detail="Profile not found after update/insert")
         return {"status": "success", "role": resp.data[0]["role"]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
