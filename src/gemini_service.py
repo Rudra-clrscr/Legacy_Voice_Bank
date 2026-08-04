@@ -70,6 +70,47 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
         print(f"[Gemini Service] Error in transcription: {e}")
         return f"Transcription error: {str(e)}"
 
+def chat_completion(messages: list, system_prompt: str) -> str:
+    """
+    Multi-turn chat completion using Gemini, with an enforced system instruction.
+    messages: list of {"role": "user"|"assistant", "content": str}, oldest first.
+    Falls back to a mock reply if the API key is not configured.
+    """
+    if not GEMINI_API_KEY:
+        print("[Gemini Service] GEMINI_API_KEY not set. Using mock chat fallback.")
+        return "This is a simulated assistant reply. Please set GEMINI_API_KEY in your .env file to enable live Gemini chat."
+
+    contents = [
+        {"role": "model" if m.get("role") == "assistant" else "user", "parts": [{"text": m.get("content", "")}]}
+        for m in messages
+        if m.get("content")
+    ]
+    if not contents:
+        return "I didn't catch a message there — could you try again?"
+
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": contents,
+        "generationConfig": {"temperature": 0.6}
+    }
+
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+
+        if response.status_code != 200:
+            print(f"[Gemini Service] Chat error {response.status_code}: {response.text}")
+            return "I'm having trouble responding right now. Please try again in a moment."
+
+        data = response.json()
+        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    except Exception as e:
+        print(f"[Gemini Service] Chat completion error: {e}")
+        return "I'm having trouble responding right now. Please try again in a moment."
+
+
 def rank_clips_with_gemini(query: str, clips: list) -> dict:
     """
     Ranks clips against a recipient query using Gemini.
@@ -137,9 +178,11 @@ JSON Output structure:
 
         result_data = response.json()
         response_text = result_data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        
-        # Parse JSON
-        decision = json.loads(response_text)
+
+        # Gemini's structured JSON output occasionally appends stray trailing
+        # data (e.g. a duplicated closing brace). raw_decode parses the first
+        # valid JSON value and ignores anything after it, instead of failing.
+        decision, _ = json.JSONDecoder().raw_decode(response_text)
         return decision
 
     except Exception as e:

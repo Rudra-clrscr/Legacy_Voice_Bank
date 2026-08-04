@@ -93,7 +93,7 @@ def local_tfidf_search(query: str, clips: list, threshold: float = 0.12) -> dict
     if best_score >= threshold:
         return {
             "found": True,
-            "clip_id": best_score if isinstance(best_clip_id, str) else str(best_clip_id),
+            "clip_id": best_clip_id if isinstance(best_clip_id, str) else str(best_clip_id),
             "score": float(best_score)
         }
     

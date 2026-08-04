@@ -3,6 +3,7 @@ import sys
 import uuid
 import wave
 import io
+import requests
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Security
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,9 +18,11 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 # Ensure src modules can be imported
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from src.gemini_service import transcribe_audio
+from src.gemini_service import transcribe_audio, chat_completion
 from src.rumik_service import generate_tts_audio
 from src.search import retrieve_relevant_clip
+from src.guardrails import build_system_prompt, enforce_guardrails
+from src.elevenlabs_service import create_voice_clone, delete_voice_clone, synthesize_with_clone
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -411,6 +414,36 @@ def delete_recipient(recipient_id: str, current_user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.put("/api/recipients/{recipient_id}/voice-clone")
+def update_recipient_voice_clone_access(recipient_id: str, body: dict, current_user=Depends(get_current_user)):
+    """
+    Narrator-only, per-recipient gate for Voice Clone Assistant (Mode 2).
+    The narrator's global voice_clone_consent must already be on before any
+    individual recipient can be granted access.
+    """
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    if profile["role"] != "narrator":
+        raise HTTPException(status_code=403, detail="Only narrators can manage voice clone access")
+
+    enabled = bool(body.get("enabled"))
+
+    if enabled and not profile.get("voice_clone_consent"):
+        raise HTTPException(status_code=400, detail="Enable Voice Clone Assistant for yourself first, in the Companion tab.")
+
+    try:
+        verify = client.table("recipients").select("patient_id").eq("id", recipient_id).execute()
+        if not verify.data or verify.data[0]["patient_id"] != current_user.id:
+            raise HTTPException(status_code=403, detail="You do not manage this recipient")
+
+        resp = client.table("recipients").update({"voice_clone_enabled": enabled}).eq("id", recipient_id).execute()
+        return resp.data[0]
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ─── Access Grants Endpoints ───────────────────────────────────────────────
 
 @app.get("/api/access_grants")
@@ -607,3 +640,281 @@ def ask_question(query: str, current_user=Depends(get_current_user)):
             "found": False,
             "message": f"An error occurred while searching: {str(e)}"
         }
+
+
+# ─── Assistant Chat (Narrator Companion / Recipient Companion) ──────────────
+
+@app.post("/api/assistant/chat")
+def assistant_chat(body: dict, current_user=Depends(get_current_user)):
+    """
+    Role-aware, safety-restricted chat assistant. Narrators get help brainstorming
+    what to record next; recipients get a guide that quotes the narrator's actual
+    recorded words rather than ever speaking as if it were them.
+    """
+    messages = body.get("messages", [])
+    if not messages or not isinstance(messages, list):
+        raise HTTPException(status_code=400, detail="messages array is required")
+
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    role = profile.get("role", "narrator")
+    last_user_message = next((m.get("content", "") for m in reversed(messages) if m.get("role") == "user"), "")
+
+    matched_clip = None
+
+    try:
+        if role == "narrator":
+            sessions_resp = client.table("sessions").select("theme").eq("patient_id", current_user.id).execute()
+            covered_themes = sorted({s["theme"] for s in (sessions_resp.data or []) if s.get("theme")})
+            system_prompt = build_system_prompt("narrator", {
+                "narrator_name": profile.get("name", "there"),
+                "covered_themes": covered_themes
+            })
+        else:
+            connections = client.table("recipients").select("id, patient_id").eq("email", current_user.email).execute()
+            if not connections.data:
+                system_prompt = build_system_prompt("recipient", {"has_connection": False})
+            else:
+                patient_ids = [c["patient_id"] for c in connections.data]
+                recipient_ids = [c["id"] for c in connections.data]
+
+                all_clips_resp = client.table("clips").select("*").in_("patient_id", patient_ids).execute()
+                grants_resp = client.table("access_grants").select("clip_id").in_("recipient_id", recipient_ids).execute()
+                granted_clip_ids = {g["clip_id"] for g in grants_resp.data} if grants_resp.data else set()
+
+                import datetime
+                now = datetime.datetime.now(datetime.timezone.utc)
+
+                clips_for_search = []
+                for clip in (all_clips_resp.data or []):
+                    is_unlocked = False
+                    if clip["release_rule"] == "now":
+                        is_unlocked = True
+                    elif clip["release_rule"] == "date" and clip["release_date"]:
+                        rel_date = datetime.datetime.fromisoformat(clip["release_date"].replace('Z', '+00:00'))
+                        if rel_date <= now:
+                            is_unlocked = True
+                    elif clip["release_rule"] == "event":
+                        is_unlocked = True
+                    if is_unlocked and (clip["visibility"] == "shared" or clip["id"] in granted_clip_ids):
+                        clips_for_search.append(clip)
+
+                narrator_name = "your loved one"
+                narrator_resp = client.table("profiles").select("name").eq("id", patient_ids[0]).execute()
+                if narrator_resp.data:
+                    narrator_name = narrator_resp.data[0]["name"]
+
+                clip_context = ""
+                if last_user_message and clips_for_search:
+                    search_result = retrieve_relevant_clip(last_user_message, clips_for_search)
+                    if search_result.get("found") and search_result.get("clip_id"):
+                        found = next((c for c in clips_for_search if c["id"] == search_result["clip_id"]), None)
+                        if found:
+                            matched_clip = {
+                                "id": found["id"],
+                                "title": found["title"],
+                                "audio_url": found["audio_url"],
+                                "transcript": found["transcript"]
+                            }
+                            clip_context = f'Clip titled "{found["title"]}": "{found["transcript"]}"'
+
+                system_prompt = build_system_prompt("recipient", {
+                    "narrator_name": narrator_name,
+                    "has_connection": True,
+                    "clip_context": clip_context
+                })
+
+        raw_reply = chat_completion(messages[-10:], system_prompt)
+        safe_reply = enforce_guardrails(raw_reply)
+
+        return {"reply": safe_reply, "matched_clip": matched_clip}
+
+    except Exception as e:
+        print(f"[Assistant Chat] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Voice Clone Assistant (Mode 2) ──────────────────────────────────────────
+
+@app.put("/api/auth/voice-consent")
+def update_voice_consent(body: dict, current_user=Depends(get_current_user)):
+    """
+    Narrator-only toggle for voice clone consent. Enabling it builds an
+    ElevenLabs Instant Voice Clone from the narrator's own recorded clips.
+    Disabling it deletes the clone and clears the stored voice_clone_id.
+    """
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    if profile.get("role") != "narrator":
+        raise HTTPException(status_code=403, detail="Only narrators can manage voice clone consent")
+
+    enable = bool(body.get("consent"))
+
+    if not enable:
+        existing = client.table("profiles").select("voice_clone_id").eq("id", current_user.id).execute()
+        voice_id = existing.data[0]["voice_clone_id"] if existing.data else None
+        if voice_id:
+            delete_voice_clone(voice_id)
+        client.table("profiles").update({
+            "voice_clone_consent": False,
+            "voice_clone_id": None
+        }).eq("id", current_user.id).execute()
+        return {"consent": False, "voice_clone_id": None}
+
+    clips_resp = client.table("clips").select("audio_url, title").eq("patient_id", current_user.id).execute()
+    samples = []
+    for c in (clips_resp.data or [])[:5]:
+        url = c.get("audio_url")
+        if not url or not url.startswith("http"):
+            continue
+        try:
+            r = requests.get(url, timeout=20)
+            r.raise_for_status()
+            samples.append((f"{c['title']}.wav", r.content, "audio/wav"))
+        except Exception as e:
+            print(f"[Voice Consent] Failed to fetch sample {url}: {e}")
+
+    if not samples:
+        raise HTTPException(
+            status_code=400,
+            detail="Record at least one clip uploaded to cloud storage before enabling voice cloning."
+        )
+
+    try:
+        voice_id = create_voice_clone(profile.get("name", "Narrator"), samples)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Voice cloning provider error: {str(e)}")
+
+    client.table("profiles").update({
+        "voice_clone_consent": True,
+        "voice_clone_id": voice_id
+    }).eq("id", current_user.id).execute()
+
+    return {"consent": True, "voice_clone_id": voice_id}
+
+
+@app.get("/api/recipient/companion-status")
+def recipient_companion_status(current_user=Depends(get_current_user)):
+    """Tells a recipient whether their connected narrator has enabled Voice Clone Assistant."""
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    if profile.get("role") != "recipient":
+        return {"connected": False, "voice_clone_available": False}
+
+    connections = client.table("recipients").select("patient_id, voice_clone_enabled").eq("email", current_user.email).execute()
+    if not connections.data:
+        return {"connected": False, "voice_clone_available": False}
+
+    connection = connections.data[0]
+    narrator_resp = client.table("profiles").select("name, voice_clone_consent").eq("id", connection["patient_id"]).execute()
+    if not narrator_resp.data:
+        return {"connected": False, "voice_clone_available": False}
+
+    narrator = narrator_resp.data[0]
+    return {
+        "connected": True,
+        "narrator_name": narrator.get("name"),
+        "voice_clone_available": bool(narrator.get("voice_clone_consent")) and bool(connection.get("voice_clone_enabled"))
+    }
+
+
+@app.post("/api/assistant/voice-chat")
+def assistant_voice_chat(body: dict, current_user=Depends(get_current_user)):
+    """
+    Mode 2: Voice Clone Assistant. Strictly quote-only — the cloned voice is
+    only ever handed the narrator's own real recorded transcript text,
+    verbatim. LLM-generated text is never sent to the clone.
+    """
+    query = body.get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    if profile.get("role") != "recipient":
+        raise HTTPException(status_code=403, detail="Voice Clone Assistant is available to recipients only")
+
+    connections = client.table("recipients").select("id, patient_id, voice_clone_enabled").eq("email", current_user.email).execute()
+    if not connections.data:
+        return {"found": False, "message": "You are not connected to any patient archive.", "audio_available": False}
+
+    if not connections.data[0].get("voice_clone_enabled"):
+        raise HTTPException(status_code=403, detail="The narrator hasn't granted you access to Voice Clone Assistant.")
+
+    patient_ids = [c["patient_id"] for c in connections.data]
+    recipient_ids = [c["id"] for c in connections.data]
+
+    narrator_resp = client.table("profiles").select("name, voice_clone_consent, voice_clone_id").eq("id", patient_ids[0]).execute()
+    if not narrator_resp.data or not narrator_resp.data[0].get("voice_clone_consent") or not narrator_resp.data[0].get("voice_clone_id"):
+        raise HTTPException(status_code=403, detail="This narrator hasn't enabled Voice Clone Assistant.")
+
+    narrator = narrator_resp.data[0]
+
+    try:
+        all_clips_resp = client.table("clips").select("*").in_("patient_id", patient_ids).execute()
+        grants_resp = client.table("access_grants").select("clip_id").in_("recipient_id", recipient_ids).execute()
+        granted_clip_ids = {g["clip_id"] for g in grants_resp.data} if grants_resp.data else set()
+
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc)
+        clips_for_search = []
+        for clip in (all_clips_resp.data or []):
+            is_unlocked = False
+            if clip["release_rule"] == "now":
+                is_unlocked = True
+            elif clip["release_rule"] == "date" and clip["release_date"]:
+                rel_date = datetime.datetime.fromisoformat(clip["release_date"].replace('Z', '+00:00'))
+                if rel_date <= now:
+                    is_unlocked = True
+            elif clip["release_rule"] == "event":
+                is_unlocked = True
+            if is_unlocked and (clip["visibility"] == "shared" or clip["id"] in granted_clip_ids):
+                clips_for_search.append(clip)
+
+        if not clips_for_search:
+            return {"found": False, "message": "No unlocked memory files are available at this time.", "audio_available": False}
+
+        search_result = retrieve_relevant_clip(query, clips_for_search)
+        if not (search_result.get("found") and search_result.get("clip_id")):
+            return {
+                "found": False,
+                "message": f"We couldn't find a recording where {narrator['name']} spoke about this.",
+                "audio_available": False
+            }
+
+        matched = next((c for c in clips_for_search if c["id"] == search_result["clip_id"]), None)
+        if not matched:
+            return {"found": False, "message": "No matching memory found.", "audio_available": False}
+
+        clip_payload = {
+            "id": matched["id"],
+            "title": matched["title"],
+            "transcript": matched["transcript"],
+            "narrator_name": narrator["name"]
+        }
+
+        try:
+            audio_bytes = synthesize_with_clone(narrator["voice_clone_id"], matched["transcript"])
+        except Exception as e:
+            print(f"[Voice Clone] Synthesis failed, falling back to original recording: {e}")
+            return {
+                "found": True,
+                "clip": clip_payload,
+                "audio_available": False,
+                "original_audio_url": matched["audio_url"]
+            }
+
+        import base64
+        return {
+            "found": True,
+            "clip": clip_payload,
+            "audio_available": True,
+            "audio_base64": base64.b64encode(audio_bytes).decode("utf-8"),
+            "mime_type": "audio/mpeg"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Voice Clone Chat] Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

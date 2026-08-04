@@ -5,7 +5,7 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error(
-    '[Living Legacy] Missing Supabase environment variables.\n' +
+    '[Pratidhvani] Missing Supabase environment variables.\n' +
     'Create a .env.local file in the frontend/ directory with:\n' +
     '  VITE_SUPABASE_URL=https://<your-project>.supabase.co\n' +
     '  VITE_SUPABASE_ANON_KEY=<your-anon-key>'

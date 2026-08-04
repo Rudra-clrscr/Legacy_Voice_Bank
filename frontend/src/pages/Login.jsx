@@ -72,7 +72,7 @@ export default function Login() {
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-2 text-secondary hover:text-accent transition-colors">
             <Heart className="w-6 h-6 text-accent fill-accent/10" />
-            <span className="font-serif font-semibold text-xl tracking-wide text-primary">Living Legacy</span>
+            <span className="font-serif font-semibold text-xl tracking-wide text-primary">Pratidhvani</span>
           </Link>
           <h1 className="mt-6 text-2xl font-serif font-medium text-primary tracking-tight">
             {isLogin ? 'Sign in' : 'Create an Account'}

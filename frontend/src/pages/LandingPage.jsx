@@ -74,7 +74,7 @@ export default function LandingPage() {
     {
       icon: MessageSquare,
       title: "Interactive Retrieval",
-      desc: "Loved ones ask questions to retrieve direct, unaltered clips of your recorded voice. Strictly no AI-synthesized cloning.",
+      desc: "Loved ones ask questions to retrieve direct, unaltered clips of your recorded voice — with an optional, consent-gated voice clone for comfort in the moments grief feels heaviest.",
       num: "04"
     }
   ];
@@ -105,7 +105,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 rounded-full border-2 border-border/40 flex items-center justify-center bg-background/30 backdrop-blur-sm group-hover:bg-accent group-hover:border-accent transition-all duration-300">
               <Heart className="w-3.5 h-3.5 text-primary group-hover:text-background transition-colors fill-primary/10" />
             </div>
-            <span className="font-serif font-semibold text-lg tracking-tight">Living Legacy</span>
+            <span className="font-serif font-semibold text-lg tracking-tight">Pratidhvani</span>
           </Link>
           <div className="flex items-center gap-3">
             {/* Audio toggle container for relative tooltip positioning */}
@@ -330,7 +330,7 @@ export default function LandingPage() {
             transition={{ duration: 0.7 }}
             className="space-y-6"
           >
-            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Why Living Legacy</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.2em] text-accent">Why Pratidhvani</span>
             <h2 className="text-3xl md:text-5xl font-serif font-semibold tracking-tight leading-[1.15]">
               A gentle voice is a<br />
               <span className="italic font-normal">timeless presence.</span>
@@ -485,9 +485,9 @@ export default function LandingPage() {
           <blockquote className="text-2xl md:text-4xl font-serif font-normal italic leading-snug text-primary">
             "Hearing the voice of someone you love is the closest thing to having them in the room."
           </blockquote>
-          <p className="text-xs uppercase tracking-[0.2em] text-secondary font-semibold">— The Living Legacy Philosophy</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-secondary font-semibold">— The Pratidhvani Philosophy</p>
           <p className="text-sm text-secondary font-light max-w-xl mx-auto leading-relaxed">
-            We don't clone voices. We don't use AI synthesis. We preserve the real, unfiltered warmth of your presence — every pause, every laugh, exactly as you are.
+            At the heart of it, we preserve the real, unfiltered warmth of your presence — every pause, every laugh, exactly as you are. Voice cloning exists too, but only as an explicit, revocable choice you make — never the default.
           </p>
         </motion.div>
       </section>
@@ -526,13 +526,13 @@ export default function LandingPage() {
             <div className="w-7 h-7 rounded-full border-2 border-border flex items-center justify-center bg-surface">
               <Heart className="w-3 h-3 text-primary fill-primary/10" />
             </div>
-            <span className="font-serif font-semibold text-sm">Living Legacy</span>
+            <span className="font-serif font-semibold text-sm">Pratidhvani</span>
           </div>
           <p className="text-[11px] text-secondary font-light text-center md:text-right max-w-sm">
             Designed with deep respect, care, and empathy to keep memories alive in their truest, warmest form.
           </p>
           <span className="text-[10px] text-secondary/50 font-light">
-            &copy; {new Date().getFullYear()} Living Legacy
+            &copy; {new Date().getFullYear()} Pratidhvani
           </span>
         </div>
       </footer>
