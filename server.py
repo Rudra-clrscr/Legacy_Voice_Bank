@@ -147,6 +147,22 @@ def update_profile(name: str, current_user=Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/auth/role")
+def update_user_role(body: dict, current_user=Depends(get_current_user)):
+    """Allows a user to switch their role dynamically between narrator and recipient."""
+    role = body.get("role")
+    if role not in ["narrator", "recipient"]:
+        raise HTTPException(status_code=400, detail="Role must be either 'narrator' or 'recipient'")
+        
+    client = get_supabase()
+    try:
+        resp = client.table("profiles").update({"role": role}).eq("id", current_user.id).execute()
+        if not resp.data:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        return {"status": "success", "role": resp.data[0]["role"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ─── TTS & STT Endpoints ────────────────────────────────────────────────────
 

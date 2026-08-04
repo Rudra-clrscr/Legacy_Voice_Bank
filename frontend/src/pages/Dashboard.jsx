@@ -70,11 +70,31 @@ export default function Dashboard() {
   const { session, signOut } = useAuth();
   const [profile, setProfile] = useState({ name: 'User', role: 'narrator' });
   const [activeTab, setActiveTab] = useState('capture'); // 'capture', 'vault', 'recipients', 'collab'
+  const [switchingRole, setSwitchingRole] = useState(false);
   
   // API Call Headers
   const getHeaders = useCallback(() => ({
     headers: { Authorization: `Bearer ${session?.access_token}` }
   }), [session]);
+
+  const handleSwitchRole = async () => {
+    if (!session) return;
+    const newRole = profile.role === 'narrator' ? 'recipient' : 'narrator';
+    setSwitchingRole(true);
+
+    try {
+      const res = await axios.put(`${API}/api/auth/role`, { role: newRole }, getHeaders());
+      toast.success(`Switched to ${newRole === 'narrator' ? 'Narrator' : 'Recipient'} Mode!`);
+      setProfile(prev => ({ ...prev, role: res.data.role }));
+      setActiveTab(newRole === 'narrator' ? 'capture' : 'ask');
+      posthog.capture('role_switched', { new_role: newRole });
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to switch role. Please try again.');
+    } finally {
+      setSwitchingRole(false);
+    }
+  };
 
   // Fetch Profile
   useEffect(() => {
@@ -105,6 +125,14 @@ export default function Dashboard() {
           <span className="text-[10px] bg-accent/10 border border-accent/20 text-accent px-2 py-0.5 rounded uppercase tracking-wider font-semibold">
             {profile.role === 'narrator' ? 'Narrator' : 'Recipient'}
           </span>
+          <button
+            onClick={handleSwitchRole}
+            disabled={switchingRole}
+            className="text-[9px] bg-secondary/15 hover:bg-secondary/25 border border-secondary/30 text-secondary px-2.5 py-0.5 rounded uppercase tracking-wider font-semibold transition-all disabled:opacity-50"
+            title={`Switch to ${profile.role === 'narrator' ? 'recipient' : 'narrator'} mode`}
+          >
+            {switchingRole ? 'Switching...' : `Switch to ${profile.role === 'narrator' ? 'Recipient' : 'Narrator'}`}
+          </button>
         </div>
         <div className="flex items-center space-x-4">
           <div className="text-right hidden sm:block">
