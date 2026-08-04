@@ -4,6 +4,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 import posthog from '../lib/posthog';
+import ParticleSphereVisualizer from '../components/ParticleSphereVisualizer';
 import {
   Mic, MicOff, Play, Pause, Save, Plus, Trash2, Edit3,
   Lock, Unlock, Clock, UserPlus, Users, Volume2, Heart,
@@ -253,6 +254,7 @@ function RecordingStudio({ getHeaders }) {
   const [audioUrl, setAudioUrl] = useState(null);
   const [transcript, setTranscript] = useState('');
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [analyser, setAnalyser] = useState(null);
 
   // Form states
   const [title, setTitle] = useState('');
@@ -317,6 +319,19 @@ function RecordingStudio({ getHeaders }) {
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Set up Web Audio Analyser for particle sphere frequency modulation
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyserNode = audioCtx.createAnalyser();
+        analyserNode.fftSize = 256;
+        source.connect(analyserNode);
+        setAnalyser(analyserNode);
+      } catch (ae) {
+        console.error("Web Audio Analyser initialization failed:", ae);
+      }
+
       const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
       mediaRecorderRef.current = recorder;
 
@@ -332,6 +347,7 @@ function RecordingStudio({ getHeaders }) {
         setAudioUrl(URL.createObjectURL(blob));
         // Stop stream tracks
         stream.getTracks().forEach(track => track.stop());
+        setAnalyser(null);
       };
 
       recorder.start();
@@ -550,32 +566,30 @@ function RecordingStudio({ getHeaders }) {
           {/* Recording panel */}
           <div className="bg-surface/60 border border-border rounded-xl p-6 flex flex-col items-center justify-center text-center space-y-4">
             
-            {isRecording ? (
-              <div className="space-y-3">
-                <div className="relative inline-block">
-                  <span className="absolute inset-0 rounded-full bg-danger/20 animate-ping" />
-                  <button
-                    onClick={stopRecording}
-                    className="relative w-16 h-16 rounded-full bg-danger text-primary flex items-center justify-center hover:opacity-90 transition-opacity"
-                  >
-                    <MicOff className="w-6 h-6 text-primary" />
-                  </button>
+            <div className="relative flex flex-col items-center">
+              <ParticleSphereVisualizer
+                analyserNode={analyser}
+                isRecording={isRecording}
+                onClick={isRecording ? stopRecording : startRecording}
+                color="#5A301E"
+                size={200}
+              />
+              
+              {isRecording ? (
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs uppercase tracking-widest text-danger font-semibold flex items-center justify-center gap-1.5 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-danger" />
+                    Recording live...
+                  </p>
+                  <p className="text-2xl font-mono text-primary font-bold">{formatTime(recordingTime)}</p>
                 </div>
-                <p className="text-xs uppercase tracking-widest text-danger font-semibold">Recording live...</p>
-                <p className="text-2xl font-mono text-primary font-bold">{formatTime(recordingTime)}</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <button
-                  onClick={startRecording}
-                  className="w-16 h-16 rounded-full bg-accent text-background flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-md"
-                >
-                  <Mic className="w-6 h-6 text-background" />
-                </button>
-                <p className="text-xs uppercase tracking-widest text-accent font-semibold">Click to speak</p>
-                <p className="text-xs text-secondary max-w-xs">Speak naturally. Real-time translation will capture your words below.</p>
-              </div>
-            )}
+              ) : (
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs uppercase tracking-widest text-accent font-semibold">Tap sphere to speak</p>
+                  <p className="text-xs text-secondary max-w-xs">Speak naturally. Click again to complete and transcribe.</p>
+                </div>
+              )}
+            </div>
 
             {audioUrl && (
               <div className="w-full pt-3 flex flex-col items-center gap-3">
@@ -1092,15 +1106,182 @@ function AskThemView({ getHeaders }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!query) return;
+  // Visualizer and recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [analyser, setAnalyser] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const streamRef = useRef(null);
+
+  // Playback audio context refs
+  const audioCtxRef = useRef(null);
+  const audioSourceRef = useRef(null);
+
+  // Clean up audio on unmount
+  useEffect(() => {
+    return () => {
+      stopClipAudio();
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const playClipAudio = async (url) => {
+    stopClipAudio();
+    const absoluteUrl = url.startsWith('http') ? url : `${API}${url}`;
+
+    try {
+      setIsPlaying(true);
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+
+      const analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      setAnalyser(analyserNode);
+
+      // Fetch file as array buffer to analyze
+      const response = await axios.get(absoluteUrl, { responseType: 'arraybuffer' });
+      const audioBuffer = await audioCtx.decodeAudioData(response.data);
+
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(analyserNode);
+      analyserNode.connect(audioCtx.destination);
+
+      source.onended = () => {
+        setIsPlaying(false);
+        setAnalyser(null);
+      };
+
+      source.start(0);
+      audioSourceRef.current = source;
+    } catch (err) {
+      console.warn("Web Audio playback failed (CORS or browser restriction). Falling back to HTML5 Audio.", err);
+      // Fallback: standard audio tag (visualizer will auto-animate when isPlaying = true)
+      const audio = new Audio(absoluteUrl);
+      audio.crossOrigin = "anonymous";
+      audioSourceRef.current = audio;
+
+      audio.onplay = () => {
+        setIsPlaying(true);
+      };
+      audio.onended = () => {
+        setIsPlaying(false);
+      };
+      audio.onerror = () => {
+        setIsPlaying(false);
+        toast.error("Failed to play audio memory.");
+      };
+      audio.play();
+    }
+  };
+
+  const stopClipAudio = () => {
+    if (audioSourceRef.current) {
+      if (audioSourceRef.current.stop) {
+        try { audioSourceRef.current.stop(); } catch(e){}
+      } else if (audioSourceRef.current.pause) {
+        audioSourceRef.current.pause();
+      }
+      audioSourceRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch(e){}
+      audioCtxRef.current = null;
+    }
+    setIsPlaying(false);
+    setAnalyser(null);
+  };
+
+  const startVoiceSearch = async () => {
+    stopClipAudio();
+    setQuery('');
+    setResult(null);
+    audioChunksRef.current = [];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      source.connect(analyserNode);
+      setAnalyser(analyserNode);
+
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAnalyser(null);
+        stream.getTracks().forEach(track => track.stop());
+
+        // Transcribe voice query
+        setTranscribing(true);
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'query.webm');
+
+        try {
+          const res = await axios.post(`${API}/api/transcribe`, formData, {
+            headers: {
+              ...getHeaders().headers,
+              'Content-Type': 'multipart/form-data'
+            }
+          });
+          const textQuery = res.data.transcript;
+          if (textQuery && textQuery.trim() && !textQuery.startsWith("This is a simulated transcript")) {
+            setQuery(textQuery);
+            runSearch(textQuery);
+          } else {
+            // Fallback for mock or empty transcripts
+            const finalQuery = (textQuery && textQuery.trim()) ? textQuery : "Tell me a memory";
+            setQuery(finalQuery);
+            runSearch(finalQuery);
+          }
+        } catch (err) {
+          console.error(err);
+          toast.error("Failed to transcribe voice search.");
+          setTranscribing(false);
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Could not access microphone:', err);
+      toast.error('Could not access microphone.');
+    }
+  };
+
+  const stopVoiceSearch = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const runSearch = async (searchQuery) => {
     setLoading(true);
     setResult(null);
+    setTranscribing(false);
 
     try {
       const res = await axios.get(`${API}/api/ask`, {
-        params: { query },
+        params: { query: searchQuery },
         ...getHeaders()
       });
       setResult(res.data);
@@ -1108,6 +1289,10 @@ function AskThemView({ getHeaders }) {
         result_found: Boolean(res.data.found),
         retrieval_method: res.data.method || 'none'
       });
+
+      if (res.data.found && res.data.clip?.audio_url) {
+        playClipAudio(res.data.clip.audio_url);
+      }
     } catch (err) {
       toast.error('Search failed.');
     } finally {
@@ -1115,28 +1300,63 @@ function AskThemView({ getHeaders }) {
     }
   };
 
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!query) return;
+    runSearch(query);
+  };
+
   return (
     <div className="space-y-6">
       <div className="text-center max-w-xl mx-auto pt-6 space-y-3">
-        <Heart className="w-10 h-10 text-accent fill-accent/15 mx-auto mb-2" />
-        <h2 className="text-3xl font-serif font-medium text-primary">Ask Your Loved One</h2>
+        <div className="flex justify-center mb-2">
+          <ParticleSphereVisualizer
+            analyserNode={analyser}
+            isRecording={isRecording}
+            isPlaying={isPlaying}
+            isLoading={loading || transcribing}
+            color="#5A301E" // Deep cocoa
+            size={220}
+            onClick={isRecording ? stopVoiceSearch : (isPlaying ? stopClipAudio : undefined)}
+          />
+        </div>
+        
+        <h2 className="text-3xl font-serif font-medium text-primary">
+          {isRecording ? "Listening..." : isPlaying ? "Playing Memory" : transcribing ? "Transcribing Voice..." : "Ask Your Loved One"}
+        </h2>
         <p className="text-sm text-secondary">
-          Enter a question, and the system will locate and play the exact audio recording where your loved one discussed that topic.
+          {isRecording 
+            ? "Speak clearly. Click the sphere when you're done speaking."
+            : isPlaying
+              ? "Listening to their recorded memory. Click the sphere to pause."
+              : "Enter a question or click the microphone to ask in your own voice."}
         </p>
       </div>
 
       {/* Search Input */}
       <form onSubmit={handleSearch} className="max-w-xl mx-auto flex gap-2">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. What was your advice about money and saving?"
-          className="flex-1 bg-background border border-border rounded-lg px-4 py-3 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40"
-        />
+        <div className="flex-1 relative flex items-center">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="e.g. What was your advice about money and saving?"
+            className="w-full bg-background border border-border rounded-lg pl-4 pr-12 py-3 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40 transition-colors"
+          />
+          <button
+            type="button"
+            onClick={isRecording ? stopVoiceSearch : startVoiceSearch}
+            className={`absolute right-3 p-1.5 rounded-full transition-all ${
+              isRecording ? 'text-danger bg-danger/10 animate-pulse' : 'text-secondary hover:text-accent hover:bg-background/60'
+            }`}
+            title="Ask via voice"
+          >
+            <Mic className="w-5.5 h-5.5" />
+          </button>
+        </div>
         <button
           type="submit"
-          disabled={loading || !query}
+          disabled={loading || !query || isRecording}
           className="bg-accent text-background font-semibold px-6 py-3 rounded-lg hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-2 shadow"
         >
           {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 text-background" />}
@@ -1176,13 +1396,16 @@ function AskThemView({ getHeaders }) {
               </div>
 
               {result.clip.audio_url && (
-                <div className="pt-2">
-                  <audio 
-                    src={result.clip.audio_url.startsWith('http') ? result.clip.audio_url : `${API}${result.clip.audio_url}`} 
-                    controls 
-                    autoPlay
-                    className="w-full" 
-                  />
+                <div className="pt-2 flex justify-between items-center bg-surface/30 px-4 py-2 rounded-lg border border-border/60">
+                  <span className="text-xs text-secondary font-sans">Audio memory recording</span>
+                  <button
+                    type="button"
+                    onClick={isPlaying ? stopClipAudio : () => playClipAudio(result.clip.audio_url)}
+                    className="flex items-center gap-1.5 text-xs text-accent hover:underline bg-accent/5 border border-accent/20 rounded-full px-3 py-1 font-medium font-sans"
+                  >
+                    {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                    <span>{isPlaying ? "Pause Memory" : "Play Memory"}</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -1410,16 +1633,216 @@ function VoiceCloneAssistantView({ getHeaders, narratorName }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!query) return;
-    setLoading(true);
+  // Visualizer and recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [analyser, setAnalyser] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const streamRef = useRef(null);
+
+  // Playback refs
+  const audioCtxRef = useRef(null);
+  const audioSourceRef = useRef(null);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      stopCloneAudio();
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const playCloneAudio = async (base64Audio, mimeType, fallbackUrl) => {
+    stopCloneAudio();
+    setIsPlaying(true);
+
+    if (base64Audio) {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtxRef.current = audioCtx;
+
+        const analyserNode = audioCtx.createAnalyser();
+        analyserNode.fftSize = 256;
+        setAnalyser(analyserNode);
+
+        // Decode base64 bytes to ArrayBuffer
+        const binaryString = window.atob(base64Audio);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(analyserNode);
+        analyserNode.connect(audioCtx.destination);
+
+        source.onended = () => {
+          setIsPlaying(false);
+          setAnalyser(null);
+        };
+        source.start(0);
+        audioSourceRef.current = source;
+      } catch (err) {
+        console.warn("Base64 Web Audio decoding failed, playing normally.", err);
+        const audio = new Audio(`data:${mimeType};base64,${base64Audio}`);
+        audioSourceRef.current = audio;
+        audio.onplay = () => setIsPlaying(true);
+        audio.onended = () => setIsPlaying(false);
+        audio.play();
+      }
+    } else if (fallbackUrl) {
+      const absoluteUrl = fallbackUrl.startsWith('http') ? fallbackUrl : `${API}${fallbackUrl}`;
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtxRef.current = audioCtx;
+
+        const analyserNode = audioCtx.createAnalyser();
+        analyserNode.fftSize = 256;
+        setAnalyser(analyserNode);
+
+        const response = await axios.get(absoluteUrl, { responseType: 'arraybuffer' });
+        const audioBuffer = await audioCtx.decodeAudioData(response.data);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(analyserNode);
+        analyserNode.connect(audioCtx.destination);
+
+        source.onended = () => {
+          setIsPlaying(false);
+          setAnalyser(null);
+        };
+        source.start(0);
+        audioSourceRef.current = source;
+      } catch (err) {
+        console.warn("CORS/Web Audio failed on fallback play, using HTML5 Audio.", err);
+        const audio = new Audio(absoluteUrl);
+        audioSourceRef.current = audio;
+        audio.onplay = () => setIsPlaying(true);
+        audio.onended = () => setIsPlaying(false);
+        audio.play();
+      }
+    }
+  };
+
+  const stopCloneAudio = () => {
+    if (audioSourceRef.current) {
+      if (audioSourceRef.current.stop) {
+        try { audioSourceRef.current.stop(); } catch(e){}
+      } else if (audioSourceRef.current.pause) {
+        audioSourceRef.current.pause();
+      }
+      audioSourceRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch(e){}
+      audioCtxRef.current = null;
+    }
+    setIsPlaying(false);
+    setAnalyser(null);
+  };
+
+  const startVoiceSearch = async () => {
+    stopCloneAudio();
+    setQuery('');
     setResult(null);
+    audioChunksRef.current = [];
 
     try {
-      const res = await axios.post(`${API}/api/assistant/voice-chat`, { query }, getHeaders());
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      source.connect(analyserNode);
+      setAnalyser(analyserNode);
+
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAnalyser(null);
+        stream.getTracks().forEach(track => track.stop());
+
+        // Transcribe voice query
+        setTranscribing(true);
+        const formData = new FormData();
+        formData.append('file', audioBlob, 'query.webm');
+
+        try {
+          const res = await axios.post(`${API}/api/transcribe`, formData, {
+            headers: {
+              ...getHeaders().headers,
+              'Content-Type': 'multipart/form-data'
+            }
+          });
+          const textQuery = res.data.transcript;
+          if (textQuery && textQuery.trim() && !textQuery.startsWith("This is a simulated transcript")) {
+            setQuery(textQuery);
+            runSearch(textQuery);
+          } else {
+            const finalQuery = (textQuery && textQuery.trim()) ? textQuery : "How was the family trip?";
+            setQuery(finalQuery);
+            runSearch(finalQuery);
+          }
+        } catch (err) {
+          console.error(err);
+          toast.error("Failed to transcribe voice search.");
+          setTranscribing(false);
+        }
+      };
+
+      recorder.start();
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Microphone error:', err);
+      toast.error('Could not access microphone.');
+    }
+  };
+
+  const stopVoiceSearch = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    }
+  };
+
+  const runSearch = async (searchQuery) => {
+    setLoading(true);
+    setResult(null);
+    setTranscribing(false);
+
+    try {
+      const res = await axios.post(`${API}/api/assistant/voice-chat`, { query: searchQuery }, getHeaders());
       setResult(res.data);
       posthog.capture('voice_clone_query', { found: Boolean(res.data.found), audio_available: Boolean(res.data.audio_available) });
+
+      if (res.data.found) {
+        if (res.data.audio_available) {
+          playCloneAudio(res.data.audio_base64, res.data.mime_type);
+        } else if (res.data.original_audio_url) {
+          playCloneAudio(null, null, res.data.original_audio_url);
+        }
+      }
     } catch (err) {
       console.error(err);
       toast.error(err.response?.data?.detail || 'Voice Clone Assistant failed.');
@@ -1428,27 +1851,61 @@ function VoiceCloneAssistantView({ getHeaders, narratorName }) {
     }
   };
 
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!query) return;
+    runSearch(query);
+  };
+
   return (
     <div className="space-y-6">
       <div className="text-center max-w-xl mx-auto pt-2 space-y-3">
-        <AudioLines className="w-10 h-10 text-accent mx-auto mb-2" />
-        <h3 className="text-xl font-serif font-medium text-primary">A Little Comfort, In {narratorName || 'Their'} Voice</h3>
+        <div className="flex justify-center mb-2">
+          <ParticleSphereVisualizer
+            analyserNode={analyser}
+            isRecording={isRecording}
+            isPlaying={isPlaying}
+            isLoading={loading || transcribing}
+            color="#5A301E" // Deep cocoa
+            size={220}
+            onClick={isRecording ? stopVoiceSearch : (isPlaying ? stopCloneAudio : undefined)}
+          />
+        </div>
+        <h3 className="text-3xl font-serif font-medium text-primary">
+          {isRecording ? "Listening..." : isPlaying ? "Voice Clone Responding" : transcribing ? "Transcribing Voice..." : `Ask In ${narratorName || 'Their'} Voice`}
+        </h3>
         <p className="text-sm text-secondary">
-          For the moments grief feels heaviest, ask a question and hear their real words again — synthesized in their own voice, exactly as they said them.
+          {isRecording 
+            ? "Speak naturally. Click the sphere when you're done speaking."
+            : isPlaying
+              ? "Synthesizing their real recorded words. Click the sphere to pause."
+              : "Ask a question and hear their real words read verbatim in their voice clone."}
         </p>
       </div>
 
       <form onSubmit={handleSearch} className="max-w-xl mx-auto flex gap-2">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. What did you love most about our family trips?"
-          className="flex-1 bg-background border border-border rounded-lg px-4 py-3 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40"
-        />
+        <div className="flex-1 relative flex items-center">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="e.g. What did you love most about our family trips?"
+            className="w-full bg-background border border-border rounded-lg pl-4 pr-12 py-3 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40 transition-colors"
+          />
+          <button
+            type="button"
+            onClick={isRecording ? stopVoiceSearch : startVoiceSearch}
+            className={`absolute right-3 p-1.5 rounded-full transition-all ${
+              isRecording ? 'text-danger bg-danger/10 animate-pulse' : 'text-secondary hover:text-accent hover:bg-background/60'
+            }`}
+            title="Ask via voice"
+          >
+            <Mic className="w-5.5 h-5.5" />
+          </button>
+        </div>
         <button
           type="submit"
-          disabled={loading || !query}
+          disabled={loading || !query || isRecording}
           className="bg-accent text-background font-semibold px-6 py-3 rounded-lg hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-2 shadow"
         >
           {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <AudioLines className="w-4 h-4 text-background" />}
@@ -1458,7 +1915,7 @@ function VoiceCloneAssistantView({ getHeaders, narratorName }) {
 
       <div className="max-w-xl mx-auto bg-surface/40 border border-border rounded-lg p-3.5 flex items-start gap-2.5 text-[11px] text-secondary">
         <AlertCircle className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 font-sans">
           <p>
             <strong>This is an AI voice clone, not {narratorName || 'the narrator'}.</strong> It only speaks their real recorded words, synthesized in their voice with their consent — it never generates new sentences.
           </p>
@@ -1469,7 +1926,7 @@ function VoiceCloneAssistantView({ getHeaders, narratorName }) {
       </div>
 
       {result && (
-        <div className="max-w-xl mx-auto border-t border-border pt-6">
+        <div className="max-w-xl mx-auto border-t border-border pt-6 font-sans">
           {result.found ? (
             <div className="bg-background/80 border border-accent/20 rounded-xl p-5 space-y-4 shadow-lg">
               <div>
@@ -1479,32 +1936,21 @@ function VoiceCloneAssistantView({ getHeaders, narratorName }) {
               <div className="bg-surface/50 border border-border/80 rounded-lg p-4 text-sm text-primary leading-relaxed font-serif italic">
                 "{result.clip.transcript}"
               </div>
-              {result.audio_available ? (
-                <div className="space-y-2">
-                  <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent bg-accent/10 border border-accent/30 rounded-full px-2.5 py-1">
-                    <AudioLines className="w-3 h-3" />
-                    <span>AI Voice Clone · SynthID Watermarked</span>
-                  </div>
-                  <audio
-                    src={`data:${result.mime_type};base64,${result.audio_base64}`}
-                    controls
-                    autoPlay
-                    className="w-full"
-                  />
+              
+              <div className="pt-2 flex justify-between items-center bg-surface/30 px-4 py-2 rounded-lg border border-border/60">
+                <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent bg-accent/10 border border-accent/30 rounded-full px-2.5 py-1">
+                  <AudioLines className="w-3 h-3" />
+                  <span>AI Voice Clone · SynthID Watermarked</span>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-[11px] text-secondary italic">Voice synthesis was unavailable — here's their original recording instead.</p>
-                  {result.original_audio_url && (
-                    <audio
-                      src={result.original_audio_url.startsWith('http') ? result.original_audio_url : `${API}${result.original_audio_url}`}
-                      controls
-                      autoPlay
-                      className="w-full"
-                    />
-                  )}
-                </div>
-              )}
+                <button
+                  type="button"
+                  onClick={isPlaying ? stopCloneAudio : () => playCloneAudio(result.audio_base64, result.mime_type, result.original_audio_url)}
+                  className="flex items-center gap-1.5 text-xs text-accent hover:underline bg-accent/5 border border-accent/20 rounded-full px-3 py-1 font-medium"
+                >
+                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>{isPlaying ? "Pause Clone" : "Play Clone"}</span>
+                </button>
+              </div>
             </div>
           ) : (
             <div className="bg-surface/30 border border-border rounded-xl p-8 text-center space-y-2">
@@ -1534,11 +1980,216 @@ function TalkingAssistantChat({ getHeaders, role }) {
   const [speakingIdx, setSpeakingIdx] = useState(null);
   const scrollRef = useRef(null);
 
+  // Voice Mode States
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [voiceStage, setVoiceStage] = useState('idle'); // 'idle' | 'speaking' | 'listening' | 'thinking'
+  const [analyser, setAnalyser] = useState(null);
+  const [latestReplyText, setLatestReplyText] = useState('');
+
+  const audioCtxRef = useRef(null);
+  const audioSourceRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, sending]);
+
+  // Clean up audio resources on unmount or toggle
+  useEffect(() => {
+    return () => {
+      stopVoiceAudio();
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
+
+  const stopVoiceAudio = () => {
+    if (audioSourceRef.current) {
+      if (audioSourceRef.current.stop) {
+        try { audioSourceRef.current.stop(); } catch(e){}
+      } else if (audioSourceRef.current.pause) {
+        audioSourceRef.current.pause();
+      }
+      audioSourceRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch(e){}
+      audioCtxRef.current = null;
+    }
+    setAnalyser(null);
+  };
+
+  const startListening = async (onDone) => {
+    stopVoiceAudio();
+    setVoiceStage('listening');
+    audioChunksRef.current = [];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      source.connect(analyserNode);
+      setAnalyser(analyserNode);
+
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAnalyser(null);
+        stream.getTracks().forEach(track => track.stop());
+        
+        if (onDone) onDone(audioBlob);
+      };
+
+      recorder.start();
+    } catch (err) {
+      console.error(err);
+      toast.error("Could not access microphone.");
+      setVoiceStage('idle');
+    }
+  };
+
+  const stopListening = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+  };
+
+  const speakText = async (text, onFinished) => {
+    stopVoiceAudio();
+    setVoiceStage('speaking');
+    setLatestReplyText(text);
+
+    try {
+      const res = await axios.post(`${API}/api/tts`, { text }, {
+        headers: getHeaders().headers,
+        responseType: 'blob'
+      });
+
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
+
+      const analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      setAnalyser(analyserNode);
+
+      const arrayBuffer = await res.data.arrayBuffer();
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(analyserNode);
+      analyserNode.connect(audioCtx.destination);
+
+      source.onended = () => {
+        setAnalyser(null);
+        if (onFinished) onFinished();
+      };
+
+      source.start(0);
+      audioSourceRef.current = source;
+    } catch (err) {
+      console.warn("TTS Web Audio play failed, playing normally.", err);
+      try {
+        const res = await axios.post(`${API}/api/tts`, { text }, {
+          headers: getHeaders().headers,
+          responseType: 'blob'
+        });
+        const blobUrl = URL.createObjectURL(res.data);
+        const audio = new Audio(blobUrl);
+        audioSourceRef.current = audio;
+        audio.onended = () => {
+          if (onFinished) onFinished();
+        };
+        audio.play();
+      } catch (e) {
+        console.error(e);
+        toast.error("Could not play companion response.");
+        if (onFinished) onFinished();
+      }
+    }
+  };
+
+  const handleVoiceInput = async (audioBlob) => {
+    setVoiceStage('thinking');
+    const formData = new FormData();
+    formData.append('file', audioBlob, 'query.webm');
+
+    try {
+      const tRes = await axios.post(`${API}/api/transcribe`, formData, {
+        headers: {
+          ...getHeaders().headers,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      const textQuery = tRes.data.transcript;
+      if (!textQuery || !textQuery.trim() || textQuery.startsWith("This is a simulated transcript")) {
+        speakText("I didn't hear you clearly. Could you please repeat that?", () => {
+          startListening((blob) => handleVoiceInput(blob));
+        });
+        return;
+      }
+
+      const updatedMessages = [...messages, { role: 'user', content: textQuery }];
+      setMessages(updatedMessages);
+
+      const res = await axios.post(`${API}/api/assistant/chat`, {
+        messages: updatedMessages.map(({ role, content }) => ({ role, content }))
+      }, getHeaders());
+
+      const reply = res.data.reply;
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: reply,
+        matchedClip: res.data.matched_clip || null
+      }]);
+
+      speakText(reply, () => {
+        startListening((blob) => handleVoiceInput(blob));
+      });
+
+    } catch (err) {
+      console.error(err);
+      speakText("Sorry, I had trouble connecting. Let's try again.", () => {
+        startListening((blob) => handleVoiceInput(blob));
+      });
+    }
+  };
+
+  const toggleVoiceMode = () => {
+    if (voiceMode) {
+      stopVoiceAudio();
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+      setVoiceStage('idle');
+      setVoiceMode(false);
+    } else {
+      setVoiceMode(true);
+      const lastMessage = messages[messages.length - 1];
+      speakText(lastMessage.content, () => {
+        startListening((blob) => handleVoiceInput(blob));
+      });
+    }
+  };
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -1585,6 +2236,59 @@ function TalkingAssistantChat({ getHeaders, role }) {
     }
   };
 
+  if (voiceMode) {
+    return (
+      <div className="space-y-6 flex flex-col h-[600px] items-center justify-center text-center">
+        <div className="w-full flex justify-between items-center border-b border-border pb-4">
+          <div className="text-left">
+            <h2 className="text-2xl font-serif font-semibold text-primary flex items-center gap-2">
+              <Bot className="w-5 h-5 text-accent animate-pulse" />
+              <span>Voice Chat Mode</span>
+            </h2>
+            <p className="text-xs text-secondary">Hands-free voice assistant. Speak naturally.</p>
+          </div>
+          <button
+            onClick={toggleVoiceMode}
+            className="flex items-center gap-1.5 text-xs border border-accent/20 bg-accent/5 text-accent px-4 py-2 rounded-full hover:bg-accent/10 transition-all font-semibold"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Switch to Text</span>
+          </button>
+        </div>
+
+        {/* Dynamic Voice Stage visualizer */}
+        <div className="flex-1 flex flex-col items-center justify-center space-y-6 max-w-md w-full">
+          <div className="relative">
+            <ParticleSphereVisualizer
+              analyserNode={analyser}
+              isRecording={voiceStage === 'listening'}
+              isPlaying={voiceStage === 'speaking'}
+              isLoading={voiceStage === 'thinking'}
+              color={role === 'narrator' ? '#5A301E' : '#2A160D'}
+              size={220}
+              onClick={voiceStage === 'listening' ? stopListening : undefined}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <h3 className="text-xl font-semibold text-primary tracking-wide capitalize">
+              {voiceStage === 'speaking' && "Companion speaking..."}
+              {voiceStage === 'listening' && "Listening to you... (Click sphere to submit)"}
+              {voiceStage === 'thinking' && "Processing..."}
+              {voiceStage === 'idle' && "Ready"}
+            </h3>
+            
+            {latestReplyText && (
+              <p className="text-sm text-secondary italic font-serif leading-relaxed line-clamp-4 bg-surface/30 p-4 rounded-xl border border-border/40 max-w-sm mx-auto">
+                "{latestReplyText}"
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 flex flex-col h-[600px]">
       <div>
@@ -1600,7 +2304,7 @@ function TalkingAssistantChat({ getHeaders, role }) {
       </div>
 
       {/* Ethical Guardrail Notice */}
-      <div className="bg-surface/40 border border-border rounded-lg p-3.5 flex items-start gap-2.5 text-[11px] text-secondary">
+      <div className="bg-surface/40 border border-border rounded-lg p-3.5 flex items-start gap-2.5 text-[11px] text-secondary font-sans">
         <AlertCircle className="w-4 h-4 text-accent shrink-0 mt-0.5" />
         <p>
           <strong>Ethical Guardrail:</strong> This assistant is a safety-restricted helper — it never uses profanity, and it never speaks as if it were {isNarrator ? 'you' : 'the narrator'}. {!isNarrator && 'It only quotes their real recorded words; it never fabricates what they might have said. Read-aloud here uses a generic voice, not a clone.'}
@@ -1617,7 +2321,7 @@ function TalkingAssistantChat({ getHeaders, role }) {
                 : 'bg-surface/60 border border-border text-primary'
             }`}>
               <div className="flex items-start gap-2">
-                <p className="flex-1">{m.content}</p>
+                <p className="flex-1 font-sans">{m.content}</p>
                 {m.role === 'assistant' && (
                   <button
                     onClick={() => handleReadAloud(idx, m.content)}
@@ -1637,7 +2341,7 @@ function TalkingAssistantChat({ getHeaders, role }) {
                     <audio
                       src={m.matchedClip.audio_url.startsWith('http') ? m.matchedClip.audio_url : `${API}${m.matchedClip.audio_url}`}
                       controls
-                      className="w-full"
+                      className="w-full animate-none"
                     />
                   )}
                 </div>
@@ -1647,7 +2351,7 @@ function TalkingAssistantChat({ getHeaders, role }) {
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="bg-surface/60 border border-border rounded-xl px-4 py-2.5 text-sm text-secondary flex items-center gap-2">
+            <div className="bg-surface/60 border border-border rounded-xl px-4 py-2.5 text-sm text-secondary flex items-center gap-2 font-sans">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               <span>Thinking…</span>
             </div>
@@ -1657,12 +2361,20 @@ function TalkingAssistantChat({ getHeaders, role }) {
 
       {/* Composer */}
       <form onSubmit={handleSend} className="flex gap-2 border-t border-border pt-4">
+        <button
+          type="button"
+          onClick={toggleVoiceMode}
+          className="bg-accent/10 border border-accent/20 text-accent hover:bg-accent/20 px-3 py-3 rounded-lg transition-all"
+          title="Switch to Voice Chat Mode"
+        >
+          <Mic className="w-4 h-4 text-accent" />
+        </button>
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder={isNarrator ? "e.g. What should I record about next?" : "e.g. What was their advice about raising kids?"}
-          className="flex-1 bg-background border border-border rounded-lg px-4 py-3 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40"
+          className="flex-1 bg-background border border-border rounded-lg px-4 py-3 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40 font-sans"
         />
         <button
           type="submit"
