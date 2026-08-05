@@ -1145,6 +1145,8 @@ function AskThemView({ getHeaders }) {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const streamRef = useRef(null);
+  const recognitionRef = useRef(null);
+
 
   // Playback audio context refs
   const audioCtxRef = useRef(null);
@@ -1156,6 +1158,9 @@ function AskThemView({ getHeaders }) {
       stopClipAudio();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch(e){}
       }
     };
   }, []);
@@ -1233,6 +1238,28 @@ function AskThemView({ getHeaders }) {
     setResult(null);
     audioChunksRef.current = [];
 
+    // Optional: Start live Web Speech Recognition for instant feedback & fast-track STT
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      try {
+        const rec = new SpeechRecognition();
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.lang = 'en-US';
+        rec.onresult = (event) => {
+          let text = '';
+          for (let i = 0; i < event.results.length; ++i) {
+            text += event.results[i][0].transcript;
+          }
+          if (text) setQuery(text);
+        };
+        rec.start();
+        recognitionRef.current = rec;
+      } catch (e) {
+        console.warn('SpeechRecognition initialization error:', e);
+      }
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
@@ -1260,13 +1287,17 @@ function AskThemView({ getHeaders }) {
         setAnalyser(null);
         stream.getTracks().forEach(track => track.stop());
 
-        // Unified: Fast-track with browser transcript if available, or upload audio blob
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch(e){}
+        }
+
+        // Unified: Fast-track with query text if available, or upload audio blob
         setTranscribing(true);
         setLoading(true);
         const formData = new FormData();
         formData.append('file', audioBlob, 'query.webm');
-        if (transcript && transcript.trim()) {
-          formData.append('text', transcript.trim());
+        if (query && query.trim()) {
+          formData.append('text', query.trim());
         }
 
         try {
@@ -1277,14 +1308,20 @@ function AskThemView({ getHeaders }) {
             }
           });
 
-          const textQuery = res.data.user_transcript || '';
+          const textQuery = res.data.user_transcript || query;
           setQuery(textQuery);
           setResult(res.data);
           setTranscribing(false);
           setLoading(false);
 
-          if (res.data.found && res.data.clip?.audio_url) {
-            playClipAudio(res.data.clip.audio_url);
+          if (res.data.found) {
+            const audioToPlay = (res.data.audio_available && res.data.audio_base64)
+              ? `data:${res.data.mime_type || 'audio/mpeg'};base64,${res.data.audio_base64}`
+              : (res.data.original_audio_url || res.data.clip?.audio_url);
+
+            if (audioToPlay) {
+              playClipAudio(audioToPlay);
+            }
           }
 
           posthog.capture('archive_search_completed', {
@@ -1312,7 +1349,11 @@ function AskThemView({ getHeaders }) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     }
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch(e){}
+    }
   };
+
 
   const runSearch = async (searchQuery) => {
     setLoading(true);
