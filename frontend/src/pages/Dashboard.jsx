@@ -1167,7 +1167,12 @@ function AskThemView({ getHeaders }) {
 
   const playClipAudio = async (url) => {
     stopClipAudio();
-    const absoluteUrl = url.startsWith('http') ? url : `${API}${url}`;
+    if (!url) return;
+
+    let targetUrl = url;
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('data:') && !url.startsWith('blob:')) {
+      targetUrl = `${API}${url.startsWith('/') ? '' : '/'}${url}`;
+    }
 
     try {
       setIsPlaying(true);
@@ -1178,9 +1183,21 @@ function AskThemView({ getHeaders }) {
       analyserNode.fftSize = 256;
       setAnalyser(analyserNode);
 
-      // Fetch file as array buffer to analyze
-      const response = await axios.get(absoluteUrl, { responseType: 'arraybuffer' });
-      const audioBuffer = await audioCtx.decodeAudioData(response.data);
+      let arrayBuffer;
+      if (targetUrl.startsWith('data:')) {
+        const base64Parts = targetUrl.split(',');
+        const binaryStr = atob(base64Parts[1]);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        arrayBuffer = bytes.buffer;
+      } else {
+        const response = await axios.get(targetUrl, { responseType: 'arraybuffer' });
+        arrayBuffer = response.data;
+      }
+
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
 
       const source = audioCtx.createBufferSource();
       source.buffer = audioBuffer;
@@ -1195,25 +1212,30 @@ function AskThemView({ getHeaders }) {
       source.start(0);
       audioSourceRef.current = source;
     } catch (err) {
-      console.warn("Web Audio playback failed (CORS or browser restriction). Falling back to HTML5 Audio.", err);
-      // Fallback: standard audio tag (visualizer will auto-animate when isPlaying = true)
-      const audio = new Audio(absoluteUrl);
-      audio.crossOrigin = "anonymous";
-      audioSourceRef.current = audio;
+      console.warn("Web Audio playback failed. Falling back to HTML5 Audio element.", err);
+      try {
+        const audio = new Audio(targetUrl);
+        if (!targetUrl.startsWith('data:')) {
+          audio.crossOrigin = "anonymous";
+        }
+        audioSourceRef.current = audio;
 
-      audio.onplay = () => {
-        setIsPlaying(true);
-      };
-      audio.onended = () => {
-        setIsPlaying(false);
-      };
-      audio.onerror = () => {
+        audio.onplay = () => setIsPlaying(true);
+        audio.onended = () => setIsPlaying(false);
+        audio.onerror = (e) => {
+          console.error("HTML5 Audio playback error:", e);
+          setIsPlaying(false);
+          toast.error("Failed to play audio memory.");
+        };
+        await audio.play();
+      } catch (audioErr) {
+        console.error("Audio playback error:", audioErr);
         setIsPlaying(false);
         toast.error("Failed to play audio memory.");
-      };
-      audio.play();
+      }
     }
   };
+
 
   const stopClipAudio = () => {
     if (audioSourceRef.current) {
