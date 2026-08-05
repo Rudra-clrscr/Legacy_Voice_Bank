@@ -24,6 +24,8 @@ from src.rumik_service import generate_tts_audio
 from src.search import retrieve_relevant_clip
 from src.guardrails import build_system_prompt, enforce_guardrails
 from src.elevenlabs_service import create_voice_clone, delete_voice_clone, synthesize_with_clone
+from src.audio_pipeline import process_unified_voice_query
+
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
@@ -995,144 +997,32 @@ async def assistant_voice_loop(
 
 @app.post("/api/ask/voice")
 async def ask_voice(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
     current_user=Depends(get_current_user)
 ):
     """
-    Unified voice query endpoint.
-    Transcribes audio -> does semantic search against unlocked clips -> synthesizes matched transcript using voice clone (if available/consented).
+    Unified low-latency voice query endpoint.
+    Accepts raw recorded audio OR pre-transcribed text (from browser live STT).
+    Processes pipeline via process_unified_voice_query engine.
     """
-    import base64
-    try:
+    audio_bytes = None
+    mime_type = "audio/webm"
+    if file:
         audio_bytes = await file.read()
-        query = await transcribe_audio_async(audio_bytes, mime_type=file.content_type)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
-
-    if not query or not query.strip() or query.startswith("This is a simulated transcript"):
-        return {
-            "user_transcript": "[Unclear audio]",
-            "found": False,
-            "message": "We couldn't transcribe your query. Please speak clearly and try again.",
-            "audio_available": False
-        }
+        mime_type = file.content_type or "audio/webm"
 
     client = get_supabase()
-    profile = get_user_profile(current_user.id)
-    role = profile.get("role", "narrator")
+    return await process_unified_voice_query(
+        user_id=current_user.id,
+        user_email=current_user.email,
+        audio_bytes=audio_bytes,
+        mime_type=mime_type,
+        client_text_query=text,
+        supabase_client=client
+    )
 
-    try:
-        if role == "narrator":
-            all_clips_resp = client.table("clips").select("*").eq("patient_id", current_user.id).execute()
-            clips_for_search = all_clips_resp.data or []
-            narrator = profile
-        else:
-            connections = client.table("recipients").select("id, patient_id, voice_clone_enabled").eq("email", current_user.email).execute()
-            if not connections.data:
-                return {
-                    "user_transcript": query,
-                    "found": False,
-                    "message": "You are not connected to any patient archive.",
-                    "audio_available": False
-                }
-            
-            patient_ids = [c["patient_id"] for c in connections.data]
-            recipient_ids = [c["id"] for c in connections.data]
 
-            all_clips_resp = client.table("clips").select("*").in_("patient_id", patient_ids).execute()
-            grants_resp = client.table("access_grants").select("clip_id").in_("recipient_id", recipient_ids).execute()
-            granted_clip_ids = {g["clip_id"] for g in grants_resp.data} if grants_resp.data else set()
-
-            import datetime
-            now = datetime.datetime.now(datetime.timezone.utc)
-
-            clips_for_search = []
-            for clip in (all_clips_resp.data or []):
-                is_unlocked = False
-                if clip["release_rule"] == "now":
-                    is_unlocked = True
-                elif clip["release_rule"] == "date" and clip["release_date"]:
-                    rel_date = datetime.datetime.fromisoformat(clip["release_date"].replace('Z', '+00:00'))
-                    if rel_date <= now:
-                        is_unlocked = True
-                elif clip["release_rule"] == "event":
-                    is_unlocked = True
-                if is_unlocked and (clip["visibility"] == "shared" or clip["id"] in granted_clip_ids):
-                    clips_for_search.append(clip)
-
-            narrator_resp = client.table("profiles").select("name, voice_clone_consent, voice_clone_id").eq("id", patient_ids[0]).execute()
-            narrator = narrator_resp.data[0] if narrator_resp.data else None
-
-        if not clips_for_search:
-            return {
-                "user_transcript": query,
-                "found": False,
-                "message": "No unlocked memory files are available at this time.",
-                "audio_available": False
-            }
-
-        search_result = retrieve_relevant_clip(query, clips_for_search)
-        if not (search_result.get("found") and search_result.get("clip_id")):
-            return {
-                "user_transcript": query,
-                "found": False,
-                "message": "We couldn't find a recording about this. Please try asking a different question.",
-                "audio_available": False
-            }
-
-        matched = next((c for c in clips_for_search if c["id"] == search_result["clip_id"]), None)
-        if not matched:
-            return {
-                "user_transcript": query,
-                "found": False,
-                "message": "No matching memory found.",
-                "audio_available": False
-            }
-
-        clip_payload = {
-            "id": matched["id"],
-            "title": matched["title"],
-            "transcript": matched["transcript"],
-            "narrator_name": narrator.get("name", "Narrator") if narrator else "Narrator"
-        }
-
-        is_clone_active = False
-        if role == "recipient" and narrator and narrator.get("voice_clone_consent") and narrator.get("voice_clone_id"):
-            if connections.data[0].get("voice_clone_enabled"):
-                is_clone_active = True
-
-        if is_clone_active:
-            try:
-                audio_bytes = synthesize_with_clone(narrator["voice_clone_id"], matched["transcript"])
-                return {
-                    "user_transcript": query,
-                    "found": True,
-                    "clip": clip_payload,
-                    "audio_available": True,
-                    "audio_base64": base64.b64encode(audio_bytes).decode("utf-8"),
-                    "mime_type": "audio/mpeg"
-                }
-            except Exception as e:
-                print(f"[Voice Ask Clone] Synthesis failed: {e}")
-                return {
-                    "user_transcript": query,
-                    "found": True,
-                    "clip": clip_payload,
-                    "audio_available": False,
-                    "original_audio_url": matched["audio_url"]
-                }
-        else:
-            return {
-                "user_transcript": query,
-                "found": True,
-                "clip": clip_payload,
-                "audio_available": False,
-                "original_audio_url": matched["audio_url"]
-            }
-
-    except Exception as e:
-        print(f"[Ask Voice Endpoint] Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/assistant/voice-chat")

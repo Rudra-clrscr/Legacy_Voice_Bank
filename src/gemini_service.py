@@ -8,9 +8,17 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_
 GEMINI_MODEL = "gemini-3.5-flash-lite"   # Ultra-fast, low-latency audio model
 GEMINI_BASE = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 
+# Persistent connection pools to eliminate TCP/TLS handshake overhead
+_sync_session = requests.Session()
+_async_client = None
 
+def _get_async_client() -> httpx.AsyncClient:
+    global _async_client
+    if _async_client is None or _async_client.is_closed:
+        _async_client = httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=5.0))
+    return _async_client
 
-# ─── Sync helpers (kept for backwards compat / non-async routes) ──────────────
+# ─── Sync helpers ─────────────────────────────────────────────────────────────
 
 def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
     """
@@ -27,7 +35,7 @@ def transcribe_audio(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
     try:
         url = f"{GEMINI_BASE}?key={GEMINI_API_KEY}"
         headers = {"Content-Type": "application/json"}
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = _sync_session.post(url, headers=headers, json=payload, timeout=15)
         if response.status_code != 200:
             print(f"[Gemini Service] Gemini API Error {response.status_code}: {response.text}")
             return "Failed to transcribe audio (API error). Please verify your API key."
@@ -53,7 +61,7 @@ def chat_completion(messages: list, system_prompt: str) -> str:
     try:
         url = f"{GEMINI_BASE}?key={GEMINI_API_KEY}"
         headers = {"Content-Type": "application/json"}
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = _sync_session.post(url, headers=headers, json=payload, timeout=15)
         if response.status_code != 200:
             print(f"[Gemini Service] Chat error {response.status_code}: {response.text}")
             return "I'm having trouble responding right now. Please try again in a moment."
@@ -68,7 +76,7 @@ def chat_completion(messages: list, system_prompt: str) -> str:
 
 async def transcribe_audio_async(audio_bytes: bytes, mime_type: str = "audio/wav") -> str:
     """
-    Async version of transcribe_audio. Uses httpx so it doesn't block the event loop.
+    Async version of transcribe_audio. Uses connection pooling so it doesn't block.
     """
     if not GEMINI_API_KEY:
         return "This is a simulated transcript. Please set GEMINI_API_KEY in your .env file to enable live Gemini transcription."
@@ -78,8 +86,8 @@ async def transcribe_audio_async(audio_bytes: bytes, mime_type: str = "audio/wav
 
     try:
         url = f"{GEMINI_BASE}?key={GEMINI_API_KEY}"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(url, json=payload)
+        client = _get_async_client()
+        response = await client.post(url, json=payload)
         if response.status_code != 200:
             print(f"[Gemini Async] STT error {response.status_code}: {response.text}")
             return "Failed to transcribe audio (API error)."
@@ -92,7 +100,7 @@ async def transcribe_audio_async(audio_bytes: bytes, mime_type: str = "audio/wav
 
 async def chat_completion_async(messages: list, system_prompt: str) -> str:
     """
-    Async version of chat_completion. Uses httpx so it doesn't block the event loop.
+    Async version of chat_completion. Uses connection pooling so it doesn't block.
     """
     if not GEMINI_API_KEY:
         return "This is a simulated assistant reply. Please set GEMINI_API_KEY in your .env file to enable live Gemini chat."
@@ -101,8 +109,8 @@ async def chat_completion_async(messages: list, system_prompt: str) -> str:
 
     try:
         url = f"{GEMINI_BASE}?key={GEMINI_API_KEY}"
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.post(url, json=payload)
+        client = _get_async_client()
+        response = await client.post(url, json=payload)
         if response.status_code != 200:
             print(f"[Gemini Async] Chat error {response.status_code}: {response.text}")
             return "I'm having trouble responding right now. Please try again in a moment."
@@ -111,6 +119,7 @@ async def chat_completion_async(messages: list, system_prompt: str) -> str:
     except Exception as e:
         print(f"[Gemini Async] Chat exception: {e}")
         return "I'm having trouble responding right now. Please try again in a moment."
+
 
 
 # ─── Clip ranking (sync — called from sync search pipeline) ───────────────────
@@ -165,7 +174,8 @@ JSON Output structure:
             }
         }
         headers = {"Content-Type": "application/json"}
-        response = requests.post(url, headers=headers, json=payload, timeout=15)
+        response = _sync_session.post(url, headers=headers, json=payload, timeout=10)
+
         if response.status_code != 200:
             print(f"[Gemini Service] Gemini API Error {response.status_code}: {response.text}")
             return {"found": False, "clip_id": None, "score": 0.0, "error": "API error"}

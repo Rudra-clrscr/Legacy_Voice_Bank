@@ -7,6 +7,8 @@ from mutagen.id3 import ID3, TXXX, COMM
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
 BASE_URL = "https://api.elevenlabs.io/v1"
 
+_session = requests.Session()
+
 _WATERMARK_NOTICE = (
     "This audio is an AI-generated voice clone from Living Legacy, synthesized "
     "from a narrator's own recorded words with their explicit consent. It is "
@@ -36,7 +38,7 @@ def create_voice_clone(name: str, samples: list) -> str:
         "description": "Living Legacy voice clone, created with the narrator's explicit consent for family memory playback."
     }
 
-    response = requests.post(f"{BASE_URL}/voices/add", headers=headers, data=data, files=files, timeout=60)
+    response = _session.post(f"{BASE_URL}/voices/add", headers=headers, data=data, files=files, timeout=60)
     response.raise_for_status()
     return response.json()["voice_id"]
 
@@ -47,7 +49,7 @@ def delete_voice_clone(voice_id: str) -> None:
         return
     try:
         headers = {"xi-api-key": ELEVENLABS_API_KEY}
-        requests.delete(f"{BASE_URL}/voices/{voice_id}", headers=headers, timeout=20)
+        _session.delete(f"{BASE_URL}/voices/{voice_id}", headers=headers, timeout=20)
     except Exception as e:
         print(f"[ElevenLabs] Failed to delete voice {voice_id}: {e}")
 
@@ -99,6 +101,9 @@ def synthesize_with_clone(voice_id: str, text: str) -> bytes:
         "model_id": "eleven_multilingual_v2",
         "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
     }
-    response = requests.post(f"{BASE_URL}/text-to-speech/{voice_id}", headers=headers, json=payload, timeout=30)
+    # optimize_streaming_latency=3 reduces synthesis turnaround time
+    url = f"{BASE_URL}/text-to-speech/{voice_id}?optimize_streaming_latency=3"
+    response = _session.post(url, headers=headers, json=payload, timeout=20)
     response.raise_for_status()
     return _tag_ai_generated(response.content)
+

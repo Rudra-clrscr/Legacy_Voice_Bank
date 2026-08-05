@@ -4,6 +4,8 @@ import requests
 RUMIK_API_KEY = os.environ.get("RUMIK_API_KEY")
 BASE_URL = "https://silk-api.rumik.ai"
 
+_session = requests.Session()
+
 def generate_tts_audio(text: str, model: str = "muga", speaker: str = "Mia") -> bytes:
     """
     Calls Rumik Silk TTS API to generate audio from text.
@@ -38,7 +40,8 @@ def generate_tts_audio(text: str, model: str = "muga", speaker: str = "Mia") -> 
             "text": text
         }
 
-    response = requests.post(f"{BASE_URL}/v1/tts", headers=headers, json=payload, timeout=20)
+    response = _session.post(f"{BASE_URL}/v1/tts", headers=headers, json=payload, timeout=15)
     response.raise_for_status()
     
     return response.content
+

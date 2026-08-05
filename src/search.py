@@ -101,9 +101,18 @@ def local_tfidf_search(query: str, clips: list, threshold: float = 0.12) -> dict
 
 def retrieve_relevant_clip(query: str, clips: list) -> dict:
     """
-    Orchestrates search: tries Gemini LLM ranking first, and falls back to TF-IDF.
+    Orchestrates fast hybrid search:
+    1. Runs local TF-IDF document retrieval first (<1ms local computation, 0ms network latency).
+    2. If a confident match (score >= 0.35) is found, returns instantly.
+    3. If TF-IDF is inconclusive, falls back to Gemini LLM semantic ranking.
     """
-    # 1. Try Gemini
+    # 1. Fast Local TF-IDF check (<1ms)
+    local_result = local_tfidf_search(query, clips, threshold=0.35)
+    if local_result.get("found"):
+        local_result["method"] = "local_tfidf"
+        return local_result
+
+    # 2. Semantic LLM Fallback (if local TF-IDF didn't find a strong match)
     gemini_result = rank_clips_with_gemini(query, clips)
     if "error" not in gemini_result and gemini_result.get("found"):
         return {
@@ -113,7 +122,7 @@ def retrieve_relevant_clip(query: str, clips: list) -> dict:
             "method": "gemini"
         }
 
-    # 2. Fallback to Local TF-IDF Search
-    local_result = local_tfidf_search(query, clips)
+    # 3. Final fallback: return best local result even if low score
     local_result["method"] = "local_tfidf"
     return local_result
+

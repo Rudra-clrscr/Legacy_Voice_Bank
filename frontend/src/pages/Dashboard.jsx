@@ -1260,11 +1260,14 @@ function AskThemView({ getHeaders }) {
         setAnalyser(null);
         stream.getTracks().forEach(track => track.stop());
 
-        // Unified: transcribe + semantic search in a single backend call
+        // Unified: Fast-track with browser transcript if available, or upload audio blob
         setTranscribing(true);
         setLoading(true);
         const formData = new FormData();
         formData.append('file', audioBlob, 'query.webm');
+        if (transcript && transcript.trim()) {
+          formData.append('text', transcript.trim());
+        }
 
         try {
           const res = await axios.post(`${API}/api/ask/voice`, formData, {
@@ -1273,6 +1276,7 @@ function AskThemView({ getHeaders }) {
               'Content-Type': 'multipart/form-data'
             }
           });
+
           const textQuery = res.data.user_transcript || '';
           setQuery(textQuery);
           setResult(res.data);
