@@ -99,7 +99,9 @@ export default function Dashboard() {
   // Fetch Profile
   useEffect(() => {
     if (!session) return;
-    axios.get(`${API}/api/auth/profile`, getHeaders())
+    axios.get(`${API}/api/auth/profile`, {
+      headers: { Authorization: `Bearer ${session.access_token}` }
+    })
       .then(res => {
         setProfile(res.data);
         // Default active tab based on role
@@ -109,9 +111,9 @@ export default function Dashboard() {
       })
       .catch(err => {
         console.error('Failed to load profile:', err);
-        toast.error('Error synchronizing profile.');
+        toast.error(`Error synchronizing profile: ${err.response?.data?.detail || err.message}`);
       });
-  }, [session, getHeaders]);
+  }, [session]);
 
   return (
     <div className="min-h-screen bg-background text-primary flex flex-col font-sans">
@@ -1258,32 +1260,38 @@ function AskThemView({ getHeaders }) {
         setAnalyser(null);
         stream.getTracks().forEach(track => track.stop());
 
-        // Transcribe voice query
+        // Unified: transcribe + semantic search in a single backend call
         setTranscribing(true);
+        setLoading(true);
         const formData = new FormData();
         formData.append('file', audioBlob, 'query.webm');
 
         try {
-          const res = await axios.post(`${API}/api/transcribe`, formData, {
+          const res = await axios.post(`${API}/api/ask/voice`, formData, {
             headers: {
               ...getHeaders().headers,
               'Content-Type': 'multipart/form-data'
             }
           });
-          const textQuery = res.data.transcript;
-          if (textQuery && textQuery.trim() && !textQuery.startsWith("This is a simulated transcript")) {
-            setQuery(textQuery);
-            runSearch(textQuery);
-          } else {
-            // Fallback for mock or empty transcripts
-            const finalQuery = (textQuery && textQuery.trim()) ? textQuery : "Tell me a memory";
-            setQuery(finalQuery);
-            runSearch(finalQuery);
+          const textQuery = res.data.user_transcript || '';
+          setQuery(textQuery);
+          setResult(res.data);
+          setTranscribing(false);
+          setLoading(false);
+
+          if (res.data.found && res.data.clip?.audio_url) {
+            playClipAudio(res.data.clip.audio_url);
           }
+
+          posthog.capture('archive_search_completed', {
+            result_found: Boolean(res.data.found),
+            retrieval_method: res.data.method || 'voice'
+          });
         } catch (err) {
           console.error(err);
-          toast.error("Failed to transcribe voice search.");
+          toast.error("Voice search failed.");
           setTranscribing(false);
+          setLoading(false);
         }
       };
 
@@ -1811,7 +1819,7 @@ function VoiceCloneAssistantView({ getHeaders, narratorName }) {
         setAnalyser(null);
         stream.getTracks().forEach(track => track.stop());
 
-        // Transcribe voice query
+        // Transcribe voice query, then hand off to runSearch (calls /api/assistant/voice-chat)
         setTranscribing(true);
         const formData = new FormData();
         formData.append('file', audioBlob, 'query.webm');
@@ -2160,15 +2168,19 @@ function TalkingAssistantChat({ getHeaders, role }) {
     setVoiceStage('thinking');
     const formData = new FormData();
     formData.append('file', audioBlob, 'query.webm');
+    formData.append('messages', JSON.stringify(messages.map(({ role, content }) => ({ role, content }))));
 
     try {
-      const tRes = await axios.post(`${API}/api/transcribe`, formData, {
+      // Unified: transcribe + LLM reply + TTS in a single backend call
+      const res = await axios.post(`${API}/api/assistant/voice-loop`, formData, {
         headers: {
           ...getHeaders().headers,
           'Content-Type': 'multipart/form-data'
         }
       });
-      const textQuery = tRes.data.transcript;
+
+      const { user_transcript: textQuery, reply, matched_clip, audio_base64, mime_type } = res.data;
+
       if (!textQuery || !textQuery.trim() || textQuery.startsWith("This is a simulated transcript")) {
         speakText("I didn't hear you clearly. Could you please repeat that?", () => {
           startListening((blob) => handleVoiceInput(blob));
@@ -2176,23 +2188,49 @@ function TalkingAssistantChat({ getHeaders, role }) {
         return;
       }
 
-      const updatedMessages = [...messages, { role: 'user', content: textQuery }];
-      setMessages(updatedMessages);
+      setMessages(prev => [
+        ...prev,
+        { role: 'user', content: textQuery },
+        { role: 'assistant', content: reply, matchedClip: matched_clip || null }
+      ]);
+      setLatestReplyText(reply);
+      setVoiceStage('speaking');
 
-      const res = await axios.post(`${API}/api/assistant/chat`, {
-        messages: updatedMessages.map(({ role, content }) => ({ role, content }))
-      }, getHeaders());
+      if (audio_base64) {
+        // Play pre-synthesized audio from the unified endpoint directly
+        try {
+          const binaryStr = atob(audio_base64);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+          const blob = new Blob([bytes], { type: mime_type || 'audio/wav' });
 
-      const reply = res.data.reply;
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: reply,
-        matchedClip: res.data.matched_clip || null
-      }]);
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          audioCtxRef.current = audioCtx;
+          const analyserNode = audioCtx.createAnalyser();
+          analyserNode.fftSize = 256;
+          setAnalyser(analyserNode);
 
-      speakText(reply, () => {
-        startListening((blob) => handleVoiceInput(blob));
-      });
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          const source = audioCtx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(analyserNode);
+          analyserNode.connect(audioCtx.destination);
+          audioSourceRef.current = source;
+
+          source.onended = () => {
+            setAnalyser(null);
+            startListening((b) => handleVoiceInput(b));
+          };
+          source.start(0);
+        } catch (audioErr) {
+          console.warn('[Voice Loop] Web Audio decode failed, falling back to speakText.', audioErr);
+          speakText(reply, () => startListening((b) => handleVoiceInput(b)));
+        }
+      } else {
+        // Fallback: synthesize on the client side if backend TTS failed
+        speakText(reply, () => startListening((b) => handleVoiceInput(b)));
+      }
 
     } catch (err) {
       console.error(err);

@@ -4,6 +4,7 @@ pydantic
 supabase
 python-dotenv
 requests
+httpx
 numpy
 python-multipart
 mutagen

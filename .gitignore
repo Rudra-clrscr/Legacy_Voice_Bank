@@ -30,3 +30,7 @@ graph.html
 # Secrets — never commit
 .env
 
+# Notes & scratch files
+syntaxes
+
+

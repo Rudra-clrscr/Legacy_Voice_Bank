@@ -26,7 +26,39 @@ export default function App() {
   return (
     <AuthProvider>
       <Router>
-        <Toaster position="top-right" toastOptions={{ className: 'bg-surface text-white border border-border' }} />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: '#FDF5D7',       // surface — soft cream
+              color: '#2A160D',            // primary — chocolate brown
+              border: '1.5px solid #2A160D',
+              borderRadius: '8px',
+              fontFamily: '"Space Grotesk", sans-serif',
+              fontSize: '13px',
+              fontWeight: '500',
+              boxShadow: '3px 3px 0px #2A160D',  // brutalist hard shadow
+              padding: '10px 14px',
+            },
+            success: {
+              iconTheme: {
+                primary: '#5A301E',   // accent — deep cocoa
+                secondary: '#FDF5D7', // surface
+              },
+            },
+            error: {
+              iconTheme: {
+                primary: '#B42318',   // danger — burnt red
+                secondary: '#FDF5D7',
+              },
+              style: {
+                border: '1.5px solid #B42318',
+                boxShadow: '3px 3px 0px #B42318',
+              },
+            },
+          }}
+        />
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
