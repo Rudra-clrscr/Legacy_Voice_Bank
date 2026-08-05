@@ -896,19 +896,20 @@ async def assistant_voice_loop(
             sessions_resp = client.table("sessions").select("theme").eq("patient_id", current_user.id).execute()
             return profile, role, sessions_resp.data or [], None, None, None
         else:
-            connections = client.table("recipients").select("id, patient_id").eq("email", current_user.email).execute()
+            connections = client.table("recipients").select("id, patient_id, voice_clone_enabled").eq("email", current_user.email).execute()
             if not connections.data:
-                return profile, role, [], None, None, None
+                return profile, role, [], None, None, None, {}
             patient_ids = [c["patient_id"] for c in connections.data]
-            recipient_ids = [c["id"] for c in connections.data]  # noqa: F841
+            recipient_ids = [c["id"] for c in connections.data]
             all_clips_resp = client.table("clips").select("*").in_("patient_id", patient_ids).execute()
             grants_resp = client.table("access_grants").select("clip_id").in_("recipient_id", recipient_ids).execute()
-            narrator_resp = client.table("profiles").select("name").eq("id", patient_ids[0]).execute()
-            narrator_name = narrator_resp.data[0]["name"] if narrator_resp.data else "your loved one"
-            return profile, role, all_clips_resp.data or [], grants_resp.data or [], narrator_name, patient_ids
+            narrator_resp = client.table("profiles").select("id, name, voice_clone_consent, voice_clone_id").eq("id", patient_ids[0]).execute()
+            narrator_data = narrator_resp.data[0] if narrator_resp.data else {}
+            narrator_name = narrator_data.get("name", "your loved one")
+            return profile, role, all_clips_resp.data or [], grants_resp.data or [], narrator_name, patient_ids, narrator_data
 
     try:
-        transcript, (profile, role, clips_data, grants_data, narrator_name, patient_ids) = await asyncio.gather(
+        transcript, (profile, role, clips_data, grants_data, narrator_name, patient_ids, narrator_data) = await asyncio.gather(
             transcribe_audio_async(audio_bytes, mime_type=audio_mime),
             asyncio.to_thread(_fetch_profile_and_clips)
         )
@@ -972,23 +973,44 @@ async def assistant_voice_loop(
         raw_reply = await chat_completion_async(history[-10:], system_prompt)
         safe_reply = enforce_guardrails(raw_reply)
 
-        # ── Phase 2c: TTS synthesis ───────────────────────────────────────────
+        # ── Phase 2c: TTS synthesis for Chatbot Spoken Response ───────────────
+        # If narrator has voice clone active and consented, chatbot speaks in narrator's cloned voice!
         tts_base64 = ""
-        try:
-            tts_bytes = generate_tts_audio(safe_reply, model="muga")
-            tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
-        except Exception as e:
-            print(f"[Voice Loop TTS] Synthesis failed: {e}")
-            dummy_wav = generate_dummy_wav()
-            tts_base64 = base64.b64encode(dummy_wav).decode("utf-8")
+        mime_type = "audio/wav"
+
+        is_clone_active = (
+            role == "recipient" and
+            is_elevenlabs_configured() and
+            bool(narrator_data.get("voice_clone_consent")) and
+            bool(narrator_data.get("voice_clone_id"))
+        )
+
+        if is_clone_active:
+            try:
+                tts_bytes = await asyncio.to_thread(synthesize_with_clone, narrator_data["voice_clone_id"], safe_reply)
+                tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
+                mime_type = "audio/mpeg"
+            except Exception as e:
+                print(f"[Voice Loop Clone TTS] Voice clone failed: {e}. Falling back to Rumik TTS.")
+                tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, "muga")
+                tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
+        else:
+            try:
+                tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, "muga")
+                tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
+            except Exception as e:
+                print(f"[Voice Loop TTS] Synthesis failed: {e}")
+                dummy_wav = generate_dummy_wav()
+                tts_base64 = base64.b64encode(dummy_wav).decode("utf-8")
 
         return {
             "user_transcript": transcript,
             "reply": safe_reply,
             "matched_clip": matched_clip,
             "audio_base64": tts_base64,
-            "mime_type": "audio/wav"
+            "mime_type": mime_type
         }
+
 
     except Exception as e:
         print(f"[Assistant Voice Loop] Error: {e}")
