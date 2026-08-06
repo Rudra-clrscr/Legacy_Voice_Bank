@@ -182,6 +182,13 @@ JSON Output structure:
 
         result_data = response.json()
         response_text = result_data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        if response_text.startswith("```"):
+            lines = response_text.splitlines()
+            if lines[0].startswith("```json") or lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            response_text = "\n".join(lines).strip()
         decision, _ = json.JSONDecoder().raw_decode(response_text)
         return decision
 
@@ -226,12 +233,25 @@ def _build_transcribe_payload(audio_bytes: bytes, gemini_mime: str) -> dict:
 
 
 def _build_chat_payload(messages: list, system_prompt: str) -> dict:
-    contents = [
-        {"role": "model" if m.get("role") == "assistant" else "user",
-         "parts": [{"text": m.get("content", "")}]}
-        for m in messages
-        if m.get("content")
-    ]
+    contents = []
+    for m in messages:
+        content = m.get("content", "").strip()
+        if not content:
+            continue
+        role = "model" if m.get("role") == "assistant" else "user"
+        
+        # If the list is empty, only add if it's a user message
+        if not contents:
+            if role == "user":
+                contents.append({"role": role, "parts": [{"text": content}]})
+            continue
+            
+        # If the last message has the same role, append/combine the text
+        if contents[-1]["role"] == role:
+            contents[-1]["parts"][0]["text"] += "\n" + content
+        else:
+            contents.append({"role": role, "parts": [{"text": content}]})
+            
     return {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
