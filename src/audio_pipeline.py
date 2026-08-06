@@ -20,10 +20,34 @@ from typing import Optional, Dict, Any, List
 
 from src.gemini_service import transcribe_audio_async, chat_completion_async
 from src.search import retrieve_relevant_clip
-from src.elevenlabs_service import synthesize_with_clone, is_configured as is_elevenlabs_configured
 from src.rumik_service import generate_tts_audio
 
 logger = logging.getLogger("audio_pipeline")
+
+def parse_release_date(date_str: str):
+    import datetime
+    if not date_str:
+        return datetime.datetime.now(datetime.timezone.utc)
+    cleaned = date_str.replace('Z', '+00:00')
+    try:
+        return datetime.datetime.fromisoformat(cleaned)
+    except ValueError:
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S.%f%z",
+            "%Y-%m-%dT%H:%M:%S%z",
+            "%Y-%m-%d %H:%M:%S.%f%z",
+            "%Y-%m-%d %H:%M:%S%z",
+            "%Y-%m-%dT%H:%M:%S.%f",
+            "%Y-%m-%dT%H:%M:%S",
+        ):
+            try:
+                dt = datetime.datetime.strptime(cleaned, fmt)
+                if not dt.tzinfo:
+                    dt = dt.replace(tzinfo=datetime.timezone.utc)
+                return dt
+            except ValueError:
+                continue
+        return datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)
 
 # ─── Simple In-Memory LRU Cache for Voice Queries ────────────────────────────
 _QUERY_CACHE: Dict[str, Dict[str, Any]] = {}
@@ -95,11 +119,11 @@ async def process_unified_voice_query(
         
         if role == "narrator":
             all_clips = supabase_client.table("clips").select("*").eq("patient_id", user_id).execute()
-            return profile, role, all_clips.data or [], profile
+            return profile, role, all_clips.data or [], profile, [], {}
         else:
-            connections = supabase_client.table("recipients").select("id, patient_id, voice_clone_enabled").eq("email", user_email).execute()
+            connections = supabase_client.table("recipients").select("id, patient_id").eq("email", user_email).execute()
             if not connections.data:
-                return profile, role, [], None
+                return profile, role, [], None, [], {}
             
             patient_ids = [c["patient_id"] for c in connections.data]
             recipient_ids = [c["id"] for c in connections.data]
@@ -116,23 +140,30 @@ async def process_unified_voice_query(
                 if clip.get("release_rule") == "now":
                     unlocked = True
                 elif clip.get("release_rule") == "date" and clip.get("release_date"):
-                    rel_date = datetime.datetime.fromisoformat(clip["release_date"].replace('Z', '+00:00'))
-                    if rel_date <= now:
-                        unlocked = True
+                    try:
+                        rel_date = parse_release_date(clip["release_date"])
+                        if rel_date <= now:
+                            unlocked = True
+                    except Exception:
+                        pass
                 elif clip.get("release_rule") == "event":
                     unlocked = True
                     
-                if unlocked and (clip.get("visibility") == "shared" or clip.get("id") in granted_ids):
+                if unlocked and (clip.get("visibility") in ["shared", "family_archive"] or clip.get("id") in granted_ids):
                     unlocked_clips.append(clip)
             
-            narrator_resp = supabase_client.table("profiles").select("*").eq("id", patient_ids[0]).execute()
-            narrator = narrator_resp.data[0] if narrator_resp.data else None
-            return profile, role, unlocked_clips, narrator
+            # Fetch profiles for all patient_ids to prevent cross-narrator clone mismatch
+            narrators_resp = supabase_client.table("profiles").select("*").in_("id", patient_ids).execute()
+            narrators_dict = {n["id"]: n for n in narrators_resp.data} if narrators_resp.data else {}
+            
+            first_id = patient_ids[0] if patient_ids else None
+            narrator = narrators_dict.get(first_id)
+            return profile, role, unlocked_clips, narrator, connections.data, narrators_dict
 
     # Run STT & DB prefetch concurrently
     if query_text:
         # Fast track: bypass STT audio upload entirely
-        profile, role, searchable_clips, narrator = await asyncio.to_thread(_fetch_db_context)
+        profile, role, searchable_clips, narrator, connections_data, narrators_dict = await asyncio.to_thread(_fetch_db_context)
     else:
         # Audio provided: STT + DB prefetch in parallel
         if not audio_bytes or len(audio_bytes) < 64:
@@ -145,7 +176,7 @@ async def process_unified_voice_query(
             }
         
         try:
-            query_text, (profile, role, searchable_clips, narrator) = await asyncio.gather(
+            query_text, (profile, role, searchable_clips, narrator, connections_data, narrators_dict) = await asyncio.gather(
                 transcribe_audio_async(audio_bytes, mime_type=mime_type),
                 asyncio.to_thread(_fetch_db_context)
             )
@@ -223,40 +254,9 @@ async def process_unified_voice_query(
     }
 
     # ── Step 3: Audio Synthesis Tier Hierarchy ──────────────────────────────
-    # Tier 1: ElevenLabs Instant Voice Clone (verbatim quote synthesis)
-    # Tier 2: Rumik Silk TTS
-    # Tier 3: Original Recorded Audio URL Fallback
+    # Tier 1: Rumik Silk TTS (synthesize generic voice for the transcript)
+    # Tier 2: Original Recorded Audio URL Fallback
     
-    is_clone_eligible = False
-    if role == "recipient" and narrator:
-        consent = narrator.get("voice_clone_consent")
-        v_id = narrator.get("voice_clone_id")
-        if consent and v_id and is_elevenlabs_configured():
-            is_clone_eligible = True
-
-    if is_clone_eligible:
-        try:
-            clone_id = narrator["voice_clone_id"]
-            quote_text = matched_clip["transcript"]
-            audio_data = await asyncio.to_thread(synthesize_with_clone, clone_id, quote_text)
-            
-            res = {
-                "user_transcript": query_text,
-                "found": True,
-                "clip": clip_payload,
-                "audio_available": True,
-                "audio_base64": base64.b64encode(audio_data).decode("utf-8"),
-                "mime_type": "audio/mpeg",
-                "synthesis_tier": "elevenlabs_clone",
-                "stt_method": stt_method,
-                "latency_ms": round((time.time() - t_start) * 1000, 2)
-            }
-            _set_cached_response(user_id, query_text, res)
-            return res
-        except Exception as e:
-            logger.warning(f"[Audio Pipeline] Clone synthesis failed, attempting TTS fallback: {e}")
-
-    # Tier 2: Rumik Silk TTS fallback if clone unavailable
     try:
         quote_text = matched_clip["transcript"]
         audio_data = await asyncio.to_thread(generate_tts_audio, quote_text)
@@ -276,7 +276,7 @@ async def process_unified_voice_query(
     except Exception as e:
         logger.info(f"[Audio Pipeline] TTS synthesis unavailable, falling back to original clip URL: {e}")
 
-    # Tier 3: Return original clip audio URL
+    # Tier 2: Return original clip audio URL
     res = {
         "user_transcript": query_text,
         "found": True,

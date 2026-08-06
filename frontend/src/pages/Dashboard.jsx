@@ -451,8 +451,8 @@ function RecordingStudio({ getHeaders }) {
 
   const saveToVault = async (e) => {
     e.preventDefault();
-    if (!audioBlob) {
-      toast.error('Please record some audio first.');
+    if (!audioBlob && (!transcript || !transcript.trim())) {
+      toast.error('Please record some audio or write a text story first.');
       return;
     }
     if (!title) {
@@ -483,7 +483,9 @@ function RecordingStudio({ getHeaders }) {
       if (releaseDate) formData.append('release_date', new Date(releaseDate).toISOString());
       if (releaseEventDesc) formData.append('release_event_desc', releaseEventDesc);
       formData.append('visibility', visibility);
-      formData.append('file', audioBlob, 'legacy_clip.webm');
+      if (audioBlob) {
+        formData.append('file', audioBlob, 'legacy_clip.webm');
+      }
 
       await axios.post(`${API}/api/clips`, formData, {
         headers: {
@@ -652,7 +654,7 @@ function RecordingStudio({ getHeaders }) {
           </div>
 
           {/* Save / Release Panel */}
-          {audioBlob && (
+          {(audioBlob || (transcript && transcript.trim().length > 10)) && (
             <form onSubmit={saveToVault} className="bg-surface/80 border border-border rounded-xl p-5 space-y-4">
               <h3 className="text-xs font-semibold text-accent uppercase tracking-widest">Metadata & Release Settings</h3>
               
@@ -761,6 +763,20 @@ function VaultView({ getHeaders }) {
   const [editRule, setEditRule] = useState('now');
   const [editVisibility, setEditVisibility] = useState('shared');
 
+  const handleReadAloud = async (text) => {
+    try {
+      const res = await axios.post(`${API}/api/tts`, { text }, {
+        ...getHeaders(),
+        responseType: 'blob'
+      });
+      const blobUrl = URL.createObjectURL(res.data);
+      const audio = new Audio(blobUrl);
+      audio.play();
+    } catch (err) {
+      toast.error('Could not read transcript aloud.');
+    }
+  };
+
   const fetchClips = useCallback(() => {
     setLoading(true);
     axios.get(`${API}/api/clips`, getHeaders())
@@ -846,8 +862,18 @@ function VaultView({ getHeaders }) {
                   </span>
                 </div>
                 <p className="text-xs text-secondary italic">Recorded on {new Date(clip.created_at).toLocaleDateString()}</p>
-                <div className="bg-background/40 border border-border/60 rounded p-3 text-xs text-secondary line-clamp-2">
-                  {clip.transcript}
+                <div className="flex items-center gap-2">
+                  <div className="bg-background/40 border border-border/60 rounded p-3 text-xs text-secondary line-clamp-2 flex-1">
+                    {clip.transcript}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleReadAloud(clip.transcript)}
+                    className="p-2 border border-border/60 rounded hover:border-accent hover:text-accent transition-all text-secondary shrink-0"
+                    title="Read Aloud"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
                 
                 {clip.audio_url && (
@@ -1010,17 +1036,6 @@ function RecipientsView({ getHeaders }) {
     }
   };
 
-  const handleToggleVoiceClone = async (r) => {
-    const nextEnabled = !r.voice_clone_enabled;
-    try {
-      await axios.put(`${API}/api/recipients/${r.id}/voice-clone`, { enabled: nextEnabled }, getHeaders());
-      posthog.capture('recipient_voice_clone_access_changed', { enabled: nextEnabled });
-      toast.success(nextEnabled ? `${r.name} can now use Voice Clone Assistant.` : `Voice Clone access revoked for ${r.name}.`);
-      setRecipients(prev => prev.map(x => x.id === r.id ? { ...x, voice_clone_enabled: nextEnabled } : x));
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to update voice clone access.');
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -1107,17 +1122,7 @@ function RecipientsView({ getHeaders }) {
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                  <button
-                    onClick={() => handleToggleVoiceClone(r)}
-                    className={`w-full flex items-center justify-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 rounded-full border transition-all ${
-                      r.voice_clone_enabled
-                        ? 'border-accent bg-accent/10 text-accent'
-                        : 'border-border/60 text-secondary hover:text-primary'
-                    }`}
-                  >
-                    <AudioLines className="w-3 h-3" />
-                    <span>{r.voice_clone_enabled ? 'Voice Clone Access Granted' : 'Grant Voice Clone Access'}</span>
-                  </button>
+
                 </div>
               ))}
             </div>
@@ -1534,6 +1539,20 @@ function ArchiveView({ getHeaders }) {
   const [clips, setClips] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  const handleReadAloud = async (text) => {
+    try {
+      const res = await axios.post(`${API}/api/tts`, { text }, {
+        ...getHeaders(),
+        responseType: 'blob'
+      });
+      const blobUrl = URL.createObjectURL(res.data);
+      const audio = new Audio(blobUrl);
+      audio.play();
+    } catch (err) {
+      toast.error('Could not read transcript aloud.');
+    }
+  };
+
   useEffect(() => {
     axios.get(`${API}/api/clips`, getHeaders())
       .then(res => setClips(res.data))
@@ -1569,8 +1588,18 @@ function ArchiveView({ getHeaders }) {
                 </div>
                 <h3 className="font-serif font-semibold text-primary text-lg leading-tight">{clip.title}</h3>
                 
-                <div className="bg-background/40 border border-border/60 rounded p-3 text-xs text-secondary leading-relaxed font-serif italic max-h-24 overflow-y-auto">
-                  "{clip.transcript}"
+                <div className="flex items-center gap-2">
+                  <div className="bg-background/40 border border-border/60 rounded p-3 text-xs text-secondary leading-relaxed font-serif italic max-h-24 overflow-y-auto flex-1 font-medium">
+                    "{clip.transcript}"
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleReadAloud(clip.transcript)}
+                    className="p-2 border border-border/60 rounded hover:border-accent hover:text-accent transition-all text-secondary shrink-0"
+                    title="Read Aloud"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
 
@@ -1592,7 +1621,13 @@ function AssistantChatView({ getHeaders, role }) {
   if (role === 'narrator') {
     return (
       <div className="space-y-6">
-        <VoiceCloneConsentCard getHeaders={getHeaders} />
+        <div>
+          <h2 className="text-2xl font-serif font-semibold text-primary flex items-center gap-2">
+            <Bot className="w-5 h-5 text-accent" />
+            <span>Companion</span>
+          </h2>
+          <p className="text-xs text-secondary">Chat with the companion assistant to brainstorm new recordings and topics.</p>
+        </div>
         <TalkingAssistantChat getHeaders={getHeaders} role={role} />
       </div>
     );
@@ -1601,22 +1636,9 @@ function AssistantChatView({ getHeaders, role }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RECIPIENT COMPONENT: Mode switcher between Talking Assistant and Voice Clone
+// RECIPIENT COMPONENT: Companion View
 // ─────────────────────────────────────────────────────────────────────────────
 function RecipientCompanionModes({ getHeaders }) {
-  const [mode, setMode] = useState('talk'); // 'talk' | 'clone'
-  const [status, setStatus] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    axios.get(`${API}/api/recipient/companion-status`, getHeaders())
-      .then(res => setStatus(res.data))
-      .catch(() => setStatus({ connected: false, voice_clone_available: false }))
-      .finally(() => setLoading(false));
-  }, [getHeaders]);
-
-  const cloneAvailable = Boolean(status?.voice_clone_available);
-
   return (
     <div className="space-y-6">
       <div>
@@ -1624,446 +1646,10 @@ function RecipientCompanionModes({ getHeaders }) {
           <Bot className="w-5 h-5 text-accent" />
           <span>Companion</span>
         </h2>
-        <p className="text-xs text-secondary">Choose how you'd like to connect with your loved one's archive.</p>
+        <p className="text-xs text-secondary">Chat with the companion assistant to query memories and hear your loved one's actual voice.</p>
       </div>
 
-      {/* Mode Pills */}
-      <div className="flex gap-2 border-b border-border pb-4">
-        <button
-          onClick={() => setMode('talk')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold border transition-all ${
-            mode === 'talk'
-              ? 'border-accent bg-accent/10 text-accent'
-              : 'border-border text-secondary hover:text-primary'
-          }`}
-        >
-          <Bot className="w-3.5 h-3.5" />
-          <span>Talking Assistant</span>
-        </button>
-        <button
-          onClick={() => cloneAvailable && setMode('clone')}
-          disabled={!cloneAvailable}
-          title={!loading && !cloneAvailable ? "The narrator hasn't enabled Voice Clone Assistant yet." : undefined}
-          className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-semibold border transition-all ${
-            mode === 'clone'
-              ? 'border-accent bg-accent/10 text-accent'
-              : cloneAvailable
-                ? 'border-border text-secondary hover:text-primary'
-                : 'border-border/40 text-secondary/40 cursor-not-allowed'
-          }`}
-        >
-          <AudioLines className="w-3.5 h-3.5" />
-          <span>Voice Clone{!loading && !cloneAvailable ? ' (locked)' : ''}</span>
-        </button>
-      </div>
-
-      {mode === 'talk' ? (
-        <TalkingAssistantChat getHeaders={getHeaders} role="recipient" />
-      ) : (
-        <VoiceCloneAssistantView getHeaders={getHeaders} narratorName={status?.narrator_name} />
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NARRATOR COMPONENT: Voice Clone Consent Card
-// ─────────────────────────────────────────────────────────────────────────────
-function VoiceCloneConsentCard({ getHeaders }) {
-  const [consent, setConsent] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    axios.get(`${API}/api/auth/profile`, getHeaders())
-      .then(res => setConsent(Boolean(res.data.voice_clone_consent)))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [getHeaders]);
-
-  const handleToggle = async () => {
-    const next = !consent;
-    setSaving(true);
-    try {
-      const res = await axios.put(`${API}/api/auth/voice-consent`, { consent: next }, getHeaders());
-      setConsent(Boolean(res.data.consent));
-      posthog.capture('voice_clone_consent_changed', { consent: res.data.consent });
-      toast.success(next ? 'Voice cloning enabled. Recipients can now hear your real words in your own voice.' : 'Voice cloning disabled and your clone was deleted.');
-    } catch (err) {
-      console.error(err);
-      toast.error(err.response?.data?.detail || 'Failed to update voice clone consent.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="bg-surface/50 border border-border rounded-xl p-5 space-y-3">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <ShieldCheck className="w-5 h-5 text-accent shrink-0 mt-0.5" />
-          <div>
-            <h3 className="text-sm font-semibold text-primary">Voice Clone Assistant</h3>
-            <p className="text-xs text-secondary max-w-md mt-1">
-              When enabled, recipients can hear a little comfort in your own voice during the moments they miss you most —
-              always your <em>actual recorded words</em>, read verbatim from your clips, never invented.
-              Built from up to 5 of your recorded clips. You can revoke this at any time, which deletes the clone.
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={handleToggle}
-          disabled={loading || saving}
-          className={`shrink-0 flex items-center gap-2 text-xs font-semibold px-4 py-2 rounded-full border transition-all disabled:opacity-50 ${
-            consent
-              ? 'border-accent bg-accent/10 text-accent'
-              : 'border-border text-secondary hover:text-primary'
-          }`}
-        >
-          {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <AudioLines className="w-3.5 h-3.5" />}
-          <span>{consent ? 'Enabled' : 'Enable'}</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// RECIPIENT COMPONENT: Voice Clone Assistant (Mode 2, quote-only)
-// ─────────────────────────────────────────────────────────────────────────────
-function VoiceCloneAssistantView({ getHeaders, narratorName }) {
-  const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-
-  // Visualizer and recording state
-  const [isRecording, setIsRecording] = useState(false);
-  const [analyser, setAnalyser] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
-
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const streamRef = useRef(null);
-
-  // Playback refs
-  const audioCtxRef = useRef(null);
-  const audioSourceRef = useRef(null);
-
-  // Clean up on unmount
-  useEffect(() => {
-    return () => {
-      stopCloneAudio();
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
-
-  const playCloneAudio = async (base64Audio, mimeType, fallbackUrl) => {
-    stopCloneAudio();
-    setIsPlaying(true);
-
-    if (base64Audio) {
-      try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        audioCtxRef.current = audioCtx;
-
-        const analyserNode = audioCtx.createAnalyser();
-        analyserNode.fftSize = 256;
-        setAnalyser(analyserNode);
-
-        // Decode base64 bytes to ArrayBuffer
-        const binaryString = window.atob(base64Audio);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const audioBuffer = await audioCtx.decodeAudioData(bytes.buffer);
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(analyserNode);
-        analyserNode.connect(audioCtx.destination);
-
-        source.onended = () => {
-          setIsPlaying(false);
-          setAnalyser(null);
-        };
-        source.start(0);
-        audioSourceRef.current = source;
-      } catch (err) {
-        console.warn("Base64 Web Audio decoding failed, playing normally.", err);
-        const audio = new Audio(`data:${mimeType};base64,${base64Audio}`);
-        audioSourceRef.current = audio;
-        audio.onplay = () => setIsPlaying(true);
-        audio.onended = () => setIsPlaying(false);
-        audio.play();
-      }
-    } else if (fallbackUrl) {
-      const absoluteUrl = fallbackUrl.startsWith('http') ? fallbackUrl : `${API}${fallbackUrl}`;
-      try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        audioCtxRef.current = audioCtx;
-
-        const analyserNode = audioCtx.createAnalyser();
-        analyserNode.fftSize = 256;
-        setAnalyser(analyserNode);
-
-        const response = await axios.get(absoluteUrl, { responseType: 'arraybuffer' });
-        const audioBuffer = await audioCtx.decodeAudioData(response.data);
-
-        const source = audioCtx.createBufferSource();
-        source.buffer = audioBuffer;
-        source.connect(analyserNode);
-        analyserNode.connect(audioCtx.destination);
-
-        source.onended = () => {
-          setIsPlaying(false);
-          setAnalyser(null);
-        };
-        source.start(0);
-        audioSourceRef.current = source;
-      } catch (err) {
-        console.warn("CORS/Web Audio failed on fallback play, using HTML5 Audio.", err);
-        const audio = new Audio(absoluteUrl);
-        audioSourceRef.current = audio;
-        audio.onplay = () => setIsPlaying(true);
-        audio.onended = () => setIsPlaying(false);
-        audio.play();
-      }
-    }
-  };
-
-  const stopCloneAudio = () => {
-    if (audioSourceRef.current) {
-      if (audioSourceRef.current.stop) {
-        try { audioSourceRef.current.stop(); } catch(e){}
-      } else if (audioSourceRef.current.pause) {
-        audioSourceRef.current.pause();
-      }
-      audioSourceRef.current = null;
-    }
-    if (audioCtxRef.current) {
-      try { audioCtxRef.current.close(); } catch(e){}
-      audioCtxRef.current = null;
-    }
-    setIsPlaying(false);
-    setAnalyser(null);
-  };
-
-  const startVoiceSearch = async () => {
-    stopCloneAudio();
-    setQuery('');
-    setResult(null);
-    audioChunksRef.current = [];
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      audioCtxRef.current = audioCtx;
-
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyserNode = audioCtx.createAnalyser();
-      analyserNode.fftSize = 256;
-      source.connect(analyserNode);
-      setAnalyser(analyserNode);
-
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        setAnalyser(null);
-        stream.getTracks().forEach(track => track.stop());
-
-        // Transcribe voice query, then hand off to runSearch (calls /api/assistant/voice-chat)
-        setTranscribing(true);
-        const formData = new FormData();
-        formData.append('file', audioBlob, 'query.webm');
-
-        try {
-          const res = await axios.post(`${API}/api/transcribe`, formData, {
-            headers: {
-              ...getHeaders().headers,
-              'Content-Type': 'multipart/form-data'
-            }
-          });
-          const textQuery = res.data.transcript;
-          if (textQuery && textQuery.trim() && !textQuery.startsWith("This is a simulated transcript")) {
-            setQuery(textQuery);
-            runSearch(textQuery);
-          } else {
-            const finalQuery = (textQuery && textQuery.trim()) ? textQuery : "How was the family trip?";
-            setQuery(finalQuery);
-            runSearch(finalQuery);
-          }
-        } catch (err) {
-          console.error(err);
-          toast.error("Failed to transcribe voice search.");
-          setTranscribing(false);
-        }
-      };
-
-      recorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error('Microphone error:', err);
-      toast.error('Could not access microphone.');
-    }
-  };
-
-  const stopVoiceSearch = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
-  const runSearch = async (searchQuery) => {
-    setLoading(true);
-    setResult(null);
-    setTranscribing(false);
-
-    try {
-      const res = await axios.post(`${API}/api/assistant/voice-chat`, { query: searchQuery }, getHeaders());
-      setResult(res.data);
-      posthog.capture('voice_clone_query', { found: Boolean(res.data.found), audio_available: Boolean(res.data.audio_available) });
-
-      if (res.data.found) {
-        if (res.data.audio_available) {
-          playCloneAudio(res.data.audio_base64, res.data.mime_type);
-        } else if (res.data.original_audio_url) {
-          playCloneAudio(null, null, res.data.original_audio_url);
-        }
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error(err.response?.data?.detail || 'Voice Clone Assistant failed.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSearch = async (e) => {
-    e.preventDefault();
-    if (!query) return;
-    runSearch(query);
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="text-center max-w-xl mx-auto pt-2 space-y-3">
-        <div className="flex justify-center mb-2">
-          <ParticleSphereVisualizer
-            analyserNode={analyser}
-            isRecording={isRecording}
-            isPlaying={isPlaying}
-            isLoading={loading || transcribing}
-            color="#5A301E" // Deep cocoa
-            size={220}
-            onClick={isRecording ? stopVoiceSearch : (isPlaying ? stopCloneAudio : undefined)}
-          />
-        </div>
-        <h3 className="text-3xl font-serif font-medium text-primary">
-          {isRecording ? "Listening..." : isPlaying ? "Voice Clone Responding" : transcribing ? "Transcribing Voice..." : `Ask In ${narratorName || 'Their'} Voice`}
-        </h3>
-        <p className="text-sm text-secondary">
-          {isRecording 
-            ? "Speak naturally. Click the sphere when you're done speaking."
-            : isPlaying
-              ? "Synthesizing their real recorded words. Click the sphere to pause."
-              : "Ask a question and hear their real words read verbatim in their voice clone."}
-        </p>
-      </div>
-
-      <form onSubmit={handleSearch} className="max-w-xl mx-auto flex gap-2">
-        <div className="flex-1 relative flex items-center">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. What did you love most about our family trips?"
-            className="w-full bg-background border border-border rounded-lg pl-4 pr-12 py-3 text-sm text-primary placeholder-secondary outline-none focus:border-accent/40 transition-colors"
-          />
-          <button
-            type="button"
-            onClick={isRecording ? stopVoiceSearch : startVoiceSearch}
-            className={`absolute right-3 p-1.5 rounded-full transition-all ${
-              isRecording ? 'text-danger bg-danger/10 animate-pulse' : 'text-secondary hover:text-accent hover:bg-background/60'
-            }`}
-            title="Ask via voice"
-          >
-            <Mic className="w-5.5 h-5.5" />
-          </button>
-        </div>
-        <button
-          type="submit"
-          disabled={loading || !query || isRecording}
-          className="bg-accent text-background font-semibold px-6 py-3 rounded-lg hover:bg-opacity-90 disabled:opacity-50 transition-all flex items-center gap-2 shadow"
-        >
-          {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <AudioLines className="w-4 h-4 text-background" />}
-          <span>Ask</span>
-        </button>
-      </form>
-
-      <div className="max-w-xl mx-auto bg-surface/40 border border-border rounded-lg p-3.5 flex items-start gap-2.5 text-[11px] text-secondary">
-        <AlertCircle className="w-4 h-4 text-accent shrink-0 mt-0.5" />
-        <div className="space-y-1.5 font-sans">
-          <p>
-            <strong>This is an AI voice clone, not {narratorName || 'the narrator'}.</strong> It only speaks their real recorded words, synthesized in their voice with their consent — it never generates new sentences.
-          </p>
-          <p>
-            This is meant as a small comfort, not a replacement for grief support. If things ever feel like too much, please reach out to someone who loves you, or a counselor.
-          </p>
-        </div>
-      </div>
-
-      {result && (
-        <div className="max-w-xl mx-auto border-t border-border pt-6 font-sans">
-          {result.found ? (
-            <div className="bg-background/80 border border-accent/20 rounded-xl p-5 space-y-4 shadow-lg">
-              <div>
-                <p className="text-xs uppercase tracking-widest text-accent font-semibold">{result.clip.narrator_name}'s Words (Cloned Voice)</p>
-                <h3 className="text-xl font-serif text-primary mt-1 font-medium leading-snug">"{result.clip.title}"</h3>
-              </div>
-              <div className="bg-surface/50 border border-border/80 rounded-lg p-4 text-sm text-primary leading-relaxed font-serif italic">
-                "{result.clip.transcript}"
-              </div>
-              
-              <div className="pt-2 flex justify-between items-center bg-surface/30 px-4 py-2 rounded-lg border border-border/60">
-                <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-accent bg-accent/10 border border-accent/30 rounded-full px-2.5 py-1">
-                  <AudioLines className="w-3 h-3" />
-                  <span>AI Voice Clone · SynthID Watermarked</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={isPlaying ? stopCloneAudio : () => playCloneAudio(result.audio_base64, result.mime_type, result.original_audio_url)}
-                  className="flex items-center gap-1.5 text-xs text-accent hover:underline bg-accent/5 border border-accent/20 rounded-full px-3 py-1 font-medium"
-                >
-                  {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                  <span>{isPlaying ? "Pause Clone" : "Play Clone"}</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-surface/30 border border-border rounded-xl p-8 text-center space-y-2">
-              <AlertCircle className="w-8 h-8 text-secondary/60 mx-auto mb-2" />
-              <p className="font-serif text-lg text-primary">No Recorded Memory Found</p>
-              <p className="text-xs text-secondary max-w-sm mx-auto">{result.message}</p>
-            </div>
-          )}
-        </div>
-      )}
+      <TalkingAssistantChat getHeaders={getHeaders} role="recipient" />
     </div>
   );
 }

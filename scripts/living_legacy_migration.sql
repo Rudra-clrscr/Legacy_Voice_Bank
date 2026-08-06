@@ -127,7 +127,7 @@ CREATE POLICY "Recipients can view clips granted to them" ON public.clips
         OR 
         (
             -- General shared visibility for connected family members (if not private)
-            visibility = 'shared' AND 
+            visibility IN ('shared', 'family_archive') AND 
             EXISTS (
                 SELECT 1 FROM public.recipients r 
                 WHERE r.patient_id = public.clips.patient_id 
@@ -197,15 +197,4 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- ────────────────────────────────────────────────────────────
--- 5. VOICE CLONE CONSENT (Voice Clone Assistant)
--- ────────────────────────────────────────────────────────────
--- Narrators must explicitly opt in before their voice can be cloned. Off by
--- default. voice_clone_id stores the resulting ElevenLabs voice ID once a
--- clone has been created; it is cleared whenever consent is revoked.
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS voice_clone_consent BOOLEAN NOT NULL DEFAULT false;
-ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS voice_clone_id TEXT;
 
--- Per-recipient gate: even with the narrator's global consent on, Voice Clone
--- Assistant (Mode 2) is only usable by recipients the narrator has explicitly
--- switched on individually. Off by default.
-ALTER TABLE public.recipients ADD COLUMN IF NOT EXISTS voice_clone_enabled BOOLEAN NOT NULL DEFAULT false;
