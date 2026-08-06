@@ -2111,6 +2111,7 @@ function TalkingAssistantChat({ getHeaders, role }) {
 // SHARED COMPONENT: Collaboration Memory Wall
 // ─────────────────────────────────────────────────────────────────────────────
 function CollabWallView({ getHeaders, role }) {
+  const { session } = useAuth();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -2145,7 +2146,12 @@ function CollabWallView({ getHeaders, role }) {
       setMediaUrl('');
       fetchItems();
     } catch (err) {
-      toast.error('Failed to add note.');
+      const errMsg = err.response?.data?.detail;
+      if (errMsg === "No connected patient found") {
+        toast.error("Please connect to a Narrator account to post on their wall.");
+      } else {
+        toast.error(errMsg || 'Failed to add note.');
+      }
     } finally {
       setIsSubmitting(false);
     }
