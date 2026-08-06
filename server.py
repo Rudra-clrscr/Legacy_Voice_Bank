@@ -228,9 +228,8 @@ async def text_to_speech(body: dict):
         audio_content = generate_tts_audio(text, model="muga")
         return Response(content=audio_content, media_type="audio/wav")
     except Exception as e:
-        print(f"[TTS Endpoint] TTS failed: {e}. Returning dummy silence.")
-        dummy_wav = generate_dummy_wav()
-        return Response(content=dummy_wav, media_type="audio/wav")
+        print(f"[TTS Endpoint] TTS failed: {e}. Raising HTTP 503.")
+        raise HTTPException(status_code=503, detail=f"TTS service unavailable: {str(e)}")
 
 @app.post("/api/transcribe")
 async def transcribe(file: UploadFile = File(...)):
@@ -934,8 +933,7 @@ async def assistant_voice_loop(
             tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
         except Exception as e:
             print(f"[Voice Loop TTS] Synthesis failed: {e}")
-            dummy_wav = generate_dummy_wav()
-            tts_base64 = base64.b64encode(dummy_wav).decode("utf-8")
+            tts_base64 = ""
 
         return {
             "user_transcript": transcript,

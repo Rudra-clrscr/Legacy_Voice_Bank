@@ -773,7 +773,14 @@ function VaultView({ getHeaders }) {
       const audio = new Audio(blobUrl);
       audio.play();
     } catch (err) {
-      toast.error('Could not read transcript aloud.');
+      console.warn("Server TTS failed, falling back to Browser SpeechSynthesis.", err);
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        toast.error('Could not read transcript aloud.');
+      }
     }
   };
 
@@ -1549,7 +1556,14 @@ function ArchiveView({ getHeaders }) {
       const audio = new Audio(blobUrl);
       audio.play();
     } catch (err) {
-      toast.error('Could not read transcript aloud.');
+      console.warn("Server TTS failed, falling back to Browser SpeechSynthesis.", err);
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        toast.error('Could not read transcript aloud.');
+      }
     }
   };
 
@@ -1659,6 +1673,27 @@ function RecipientCompanionModes({ getHeaders }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function TalkingAssistantChat({ getHeaders, role }) {
   const isNarrator = role === 'narrator';
+
+  const speakBrowser = (text, onFinished) => {
+    if (!window.speechSynthesis) {
+      if (onFinished) onFinished();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    const voices = window.speechSynthesis.getVoices();
+    const activeVoice = voices.find(v => v.lang.includes('IN') || v.lang.includes('hi')) || voices.find(v => v.lang.includes('en'));
+    if (activeVoice) {
+      utterance.voice = activeVoice;
+    }
+    utterance.onend = () => {
+      if (onFinished) onFinished();
+    };
+    utterance.onerror = () => {
+      if (onFinished) onFinished();
+    };
+    window.speechSynthesis.speak(utterance);
+  };
   const greeting = isNarrator
     ? "Hi, I'm your Recording Companion. Ask me for ideas on what to record next, or tell me a memory and I'll help you shape it into a prompt."
     : "Hi, I'm your Recipient Companion. Ask me about your loved one's recordings — I'll quote their own words whenever I find them, never invent new ones.";
@@ -1796,24 +1831,8 @@ function TalkingAssistantChat({ getHeaders, role }) {
       source.start(0);
       audioSourceRef.current = source;
     } catch (err) {
-      console.warn("TTS Web Audio play failed, playing normally.", err);
-      try {
-        const res = await axios.post(`${API}/api/tts`, { text }, {
-          headers: getHeaders().headers,
-          responseType: 'blob'
-        });
-        const blobUrl = URL.createObjectURL(res.data);
-        const audio = new Audio(blobUrl);
-        audioSourceRef.current = audio;
-        audio.onended = () => {
-          if (onFinished) onFinished();
-        };
-        audio.play();
-      } catch (e) {
-        console.error(e);
-        toast.error("Could not play companion response.");
-        if (onFinished) onFinished();
-      }
+      console.warn("TTS Web Audio play failed, falling back to Browser SpeechSynthesis.", err);
+      speakBrowser(text, onFinished);
     }
   };
 
@@ -1950,8 +1969,8 @@ function TalkingAssistantChat({ getHeaders, role }) {
       audio.onended = () => setSpeakingIdx(null);
       audio.play();
     } catch (err) {
-      toast.error('Could not read this message aloud.');
-      setSpeakingIdx(null);
+      console.warn('Could not read this message aloud via server. Using Browser SpeechSynthesis.', err);
+      speakBrowser(text, () => setSpeakingIdx(null));
     }
   };
 
