@@ -259,7 +259,7 @@ async def process_unified_voice_query(
     
     try:
         quote_text = matched_clip["transcript"]
-        audio_data = await asyncio.to_thread(generate_tts_audio, quote_text)
+        audio_data = await asyncio.to_thread(generate_tts_audio, quote_text, model="mulberry", speaker="Mia")
         res = {
             "user_transcript": query_text,
             "found": True,

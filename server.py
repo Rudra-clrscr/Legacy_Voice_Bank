@@ -225,7 +225,7 @@ async def text_to_speech(body: dict):
         raise HTTPException(status_code=400, detail="Text parameter is required")
     
     try:
-        audio_content = generate_tts_audio(text, model="muga")
+        audio_content = generate_tts_audio(text, model="mulberry", speaker="Mia")
         return Response(content=audio_content, media_type="audio/wav")
     except Exception as e:
         print(f"[TTS Endpoint] TTS failed: {e}. Raising HTTP 503.")
@@ -375,7 +375,7 @@ async def upload_clip(
         if not transcript or not transcript.strip():
             raise HTTPException(status_code=400, detail="Transcript/text content is required for text journals")
         try:
-            audio_bytes = await asyncio.to_thread(generate_tts_audio, transcript)
+            audio_bytes = await asyncio.to_thread(generate_tts_audio, transcript, model="mulberry", speaker="Mia")
             file_name = f"{current_user.id}/{file_uuid}.wav"
             content_type = "audio/wav"
         except Exception as e:
@@ -929,7 +929,7 @@ async def assistant_voice_loop(
         tts_base64 = ""
         mime_type = "audio/wav"
         try:
-            tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, "muga")
+            tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, model="mulberry", speaker="Mia")
             tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
         except Exception as e:
             print(f"[Voice Loop TTS] Synthesis failed: {e}")

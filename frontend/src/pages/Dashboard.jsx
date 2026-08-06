@@ -777,6 +777,18 @@ function VaultView({ getHeaders }) {
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
+        const voices = window.speechSynthesis.getVoices();
+        const femaleKeywords = ['veena', 'heera', 'zira', 'hazel', 'samantha', 'victoria', 'female', 'google us english', 'google india English', 'google uk english female'];
+        const activeVoice = voices.find(v => {
+          const name = v.name.toLowerCase();
+          const lang = v.lang.toLowerCase();
+          const matchesLang = lang.includes('in') || lang.includes('hi') || lang.includes('en');
+          const matchesFemale = femaleKeywords.some(keyword => name.includes(keyword));
+          return matchesLang && matchesFemale;
+        }) || voices.find(v => v.lang.includes('IN') || v.lang.includes('hi')) || voices.find(v => v.lang.includes('en'));
+        if (activeVoice) {
+          utterance.voice = activeVoice;
+        }
         window.speechSynthesis.speak(utterance);
       } else {
         toast.error('Could not read transcript aloud.');
@@ -1560,6 +1572,18 @@ function ArchiveView({ getHeaders }) {
       if (window.speechSynthesis) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
+        const voices = window.speechSynthesis.getVoices();
+        const femaleKeywords = ['veena', 'heera', 'zira', 'hazel', 'samantha', 'victoria', 'female', 'google us english', 'google india English', 'google uk english female'];
+        const activeVoice = voices.find(v => {
+          const name = v.name.toLowerCase();
+          const lang = v.lang.toLowerCase();
+          const matchesLang = lang.includes('in') || lang.includes('hi') || lang.includes('en');
+          const matchesFemale = femaleKeywords.some(keyword => name.includes(keyword));
+          return matchesLang && matchesFemale;
+        }) || voices.find(v => v.lang.includes('IN') || v.lang.includes('hi')) || voices.find(v => v.lang.includes('en'));
+        if (activeVoice) {
+          utterance.voice = activeVoice;
+        }
         window.speechSynthesis.speak(utterance);
       } else {
         toast.error('Could not read transcript aloud.');
@@ -1682,7 +1706,14 @@ function TalkingAssistantChat({ getHeaders, role }) {
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = window.speechSynthesis.getVoices();
-    const activeVoice = voices.find(v => v.lang.includes('IN') || v.lang.includes('hi')) || voices.find(v => v.lang.includes('en'));
+    const femaleKeywords = ['veena', 'heera', 'zira', 'hazel', 'samantha', 'victoria', 'female', 'google us english', 'google india English', 'google uk english female'];
+    const activeVoice = voices.find(v => {
+      const name = v.name.toLowerCase();
+      const lang = v.lang.toLowerCase();
+      const matchesLang = lang.includes('in') || lang.includes('hi') || lang.includes('en');
+      const matchesFemale = femaleKeywords.some(keyword => name.includes(keyword));
+      return matchesLang && matchesFemale;
+    }) || voices.find(v => v.lang.includes('IN') || v.lang.includes('hi')) || voices.find(v => v.lang.includes('en'));
     if (activeVoice) {
       utterance.voice = activeVoice;
     }
