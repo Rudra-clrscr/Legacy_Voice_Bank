@@ -21,21 +21,21 @@ VOICE_MAP = {
 
 def clean_text_for_elevenlabs(text: str) -> str:
     """
-    Cleans raw dialogue text by removing TTS tone/style tags and replacing 
-    inline events with asterisk notations so ElevenLabs reads them naturally.
+    Cleans raw dialogue text by removing all square and angle bracket tags, 
+    and converting conversational events (laugh, chuckle, sigh) into natural 
+    phonetic expressions that ElevenLabs can vocalize without speaking literally.
     """
     if not text:
         return ""
-    # 1. Remove tone tags like [happy], [excited], [sad], [angry], [neutral], [whisper]
-    text = re.sub(r'\[(happy|excited|sad|angry|neutral|whisper)\]', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'^\s*\[[a-zA-Z0-9\s_-]+\]', '', text)
-    text = re.sub(r'\n\s*\[[a-zA-Z0-9\s_-]+\]', '\n', text)
+    # 1. Replace inline events with natural phonetic expressions before stripping tags
+    text = re.sub(r'<laugh>', ' haha! ', text, flags=re.IGNORECASE)
+    text = re.sub(r'<chuckle>', ' hehe, ', text, flags=re.IGNORECASE)
+    text = re.sub(r'<sigh>', ' ah... ', text, flags=re.IGNORECASE)
     
-    # 2. Replace inline events like <laugh>, <chuckle>, <sigh> with asterisks
-    text = re.sub(r'<laugh>', ' *laughs* ', text, flags=re.IGNORECASE)
-    text = re.sub(r'<chuckle>', ' *chuckles* ', text, flags=re.IGNORECASE)
-    text = re.sub(r'<sigh>', ' *sighs* ', text, flags=re.IGNORECASE)
-    text = re.sub(r'<[a-zA-Z0-9\s_-]+>', '', text)
+    # 2. Strip ALL square brackets content (e.g. [happy], [neutral])
+    text = re.sub(r'\[[^\]]*\]', '', text)
+    # Strip any remaining angle brackets content (e.g. <anything>)
+    text = re.sub(r'<[^>]*>', '', text)
     
     # 3. Clean up multiple spaces
     text = re.sub(r' +', ' ', text)
