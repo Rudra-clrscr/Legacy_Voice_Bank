@@ -1884,7 +1884,11 @@ function TalkingAssistantChat({ getHeaders, role }) {
 
       const { user_transcript: textQuery, reply, matched_clip, audio_base64, mime_type } = res.data;
 
-      if (!textQuery || !textQuery.trim() || textQuery.startsWith("This is a simulated transcript")) {
+      if (!textQuery || !textQuery.trim() || 
+          textQuery.startsWith("This is a simulated transcript") ||
+          textQuery.startsWith("Failed to transcribe") ||
+          textQuery.startsWith("Transcription error") ||
+          textQuery === "[Unclear audio]") {
         speakText("I didn't hear you clearly. Could you please repeat that?", () => {
           startListening((blob) => handleVoiceInput(blob));
         });

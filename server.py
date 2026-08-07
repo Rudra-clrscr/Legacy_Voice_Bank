@@ -857,7 +857,10 @@ async def assistant_voice_loop(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pipeline phase-1 failed: {str(e)}")
 
-    if not transcript or not transcript.strip() or transcript.startswith("This is a simulated transcript"):
+    if (not transcript or not transcript.strip() or 
+            transcript.startswith("This is a simulated transcript") or
+            transcript.startswith("Failed to transcribe") or
+            transcript.startswith("Transcription error")):
         transcript = "[Unclear audio]"
 
     history.append({"role": "user", "content": transcript})
