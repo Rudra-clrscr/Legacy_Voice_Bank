@@ -86,7 +86,7 @@ export default function Dashboard() {
       const res = await axios.put(`${API}/api/auth/role`, { role: newRole }, getHeaders());
       toast.success(`Switched to ${newRole === 'narrator' ? 'Narrator' : 'Recipient'} Mode!`);
       setProfile(prev => ({ ...prev, role: res.data.role }));
-      setActiveTab(newRole === 'narrator' ? 'capture' : 'ask');
+      setActiveTab(newRole === 'narrator' ? 'capture' : 'companion');
       posthog.capture('role_switched', { new_role: newRole });
     } catch (err) {
       console.error(err);
@@ -106,7 +106,7 @@ export default function Dashboard() {
         setProfile(res.data);
         // Default active tab based on role
         if (res.data.role === 'recipient') {
-          setActiveTab('ask');
+          setActiveTab('companion');
         }
       })
       .catch(err => {
@@ -191,19 +191,41 @@ export default function Dashboard() {
                 <Users className="w-4 h-4" />
                 <span>Recipient Directory</span>
               </button>
-            </>
-          ) : (
-            <>
               <button
-                onClick={() => setActiveTab('ask')}
+                onClick={() => setActiveTab('companion')}
                 className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === 'ask'
+                  activeTab === 'companion'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
                 }`}
               >
-                <Search className="w-4 h-4" />
-                <span>Ask Them</span>
+                <Bot className="w-4 h-4" />
+                <span>Companion</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('collab')}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'collab'
+                    ? 'bg-accent text-background font-semibold shadow'
+                    : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Collaboration Wall</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setActiveTab('companion')}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'companion'
+                    ? 'bg-accent text-background font-semibold shadow'
+                    : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
+                }`}
+              >
+                <Bot className="w-4 h-4" />
+                <span>Ask & Chat</span>
               </button>
               <button
                 onClick={() => setActiveTab('archive')}
@@ -216,32 +238,19 @@ export default function Dashboard() {
                 <BookOpen className="w-4 h-4" />
                 <span>Preserved Archive</span>
               </button>
+              <button
+                onClick={() => setActiveTab('collab')}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
+                  activeTab === 'collab'
+                    ? 'bg-accent text-background font-semibold shadow'
+                    : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
+                }`}
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Collaboration Wall</span>
+              </button>
             </>
           )}
-
-          <button
-            onClick={() => setActiveTab('companion')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'companion'
-                ? 'bg-accent text-background font-semibold shadow'
-                : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-            }`}
-          >
-            <Bot className="w-4 h-4" />
-            <span>Companion</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('collab')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${
-              activeTab === 'collab'
-                ? 'bg-accent text-background font-semibold shadow'
-                : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-            }`}
-          >
-            <MessageSquare className="w-4 h-4" />
-            <span>Collaboration Wall</span>
-          </button>
         </aside>
 
         {/* Dynamic Content Panel */}
@@ -256,7 +265,6 @@ export default function Dashboard() {
             </>
           ) : (
             <>
-              {activeTab === 'ask' && <AskThemView getHeaders={getHeaders} />}
               {activeTab === 'archive' && <ArchiveView getHeaders={getHeaders} />}
               {activeTab === 'companion' && <AssistantChatView getHeaders={getHeaders} role="recipient" />}
               {activeTab === 'collab' && <CollabWallView getHeaders={getHeaders} role="recipient" />}
@@ -1674,20 +1682,54 @@ function AssistantChatView({ getHeaders, role }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RECIPIENT COMPONENT: Companion View
-// ─────────────────────────────────────────────────────────────────────────────
 function RecipientCompanionModes({ getHeaders }) {
+  const [subMode, setSubMode] = useState('chat'); // 'chat' | 'search'
+
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-serif font-semibold text-primary flex items-center gap-2">
-          <Bot className="w-5 h-5 text-accent" />
-          <span>Companion</span>
-        </h2>
-        <p className="text-xs text-secondary">Chat with the companion assistant to query memories and hear your loved one's actual voice.</p>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-4">
+        <div>
+          <h2 className="text-2xl font-serif font-semibold text-primary flex items-center gap-2">
+            <Bot className="w-5 h-5 text-accent" />
+            <span>{subMode === 'chat' ? 'Ask & Chat' : 'Direct Memory Search'}</span>
+          </h2>
+          <p className="text-xs text-secondary">
+            {subMode === 'chat' 
+              ? "Chat with the companion assistant to query memories and hear your loved one's actual voice." 
+              : "Search the preserved archive of your loved one's voice recordings directly."}
+          </p>
+        </div>
+
+        {/* Tab switcher */}
+        <div className="flex bg-surface/50 border border-border/80 p-1 rounded-lg self-start md:self-auto shrink-0 shadow-sm font-sans">
+          <button
+            onClick={() => setSubMode('chat')}
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              subMode === 'chat'
+                ? 'bg-accent text-background shadow-sm'
+                : 'text-secondary hover:text-primary'
+            }`}
+          >
+            Interactive Chat
+          </button>
+          <button
+            onClick={() => setSubMode('search')}
+            className={`px-4 py-1.5 rounded-md text-xs font-semibold transition-all ${
+              subMode === 'search'
+                ? 'bg-accent text-background shadow-sm'
+                : 'text-secondary hover:text-primary'
+            }`}
+          >
+            Direct Search
+          </button>
+        </div>
       </div>
 
-      <TalkingAssistantChat getHeaders={getHeaders} role="recipient" />
+      {subMode === 'chat' ? (
+        <TalkingAssistantChat getHeaders={getHeaders} role="recipient" />
+      ) : (
+        <AskThemView getHeaders={getHeaders} />
+      )}
     </div>
   );
 }
