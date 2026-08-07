@@ -190,7 +190,10 @@ async def process_unified_voice_query(
                 "latency_ms": round((time.time() - t_start) * 1000, 2)
             }
 
-    if not query_text or not query_text.strip() or query_text.startswith("This is a simulated transcript"):
+    if (not query_text or not query_text.strip() or 
+            query_text.startswith("This is a simulated transcript") or
+            query_text.startswith("Failed to transcribe") or
+            query_text.startswith("Transcription error")):
         return {
             "user_transcript": "[Unclear audio]",
             "found": False,

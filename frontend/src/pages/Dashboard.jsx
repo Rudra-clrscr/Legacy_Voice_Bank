@@ -1363,6 +1363,16 @@ function AskThemView({ getHeaders }) {
           });
 
           const textQuery = res.data.user_transcript || query;
+          if (textQuery === "[Unclear audio]" || 
+              textQuery.startsWith("Failed to transcribe") || 
+              textQuery.startsWith("Transcription error") || 
+              textQuery.startsWith("This is a simulated transcript")) {
+            toast.error("We couldn't hear you clearly. Please try speaking again.");
+            setQuery("");
+            setTranscribing(false);
+            setLoading(false);
+            return;
+          }
           setQuery(textQuery);
           setResult(res.data);
           setTranscribing(false);
