@@ -226,7 +226,7 @@ async def text_to_speech(body: dict):
     
     try:
         audio_content = generate_tts_audio(text, model="mulberry", speaker="Mia")
-        return Response(content=audio_content, media_type="audio/wav")
+        return Response(content=audio_content, media_type="audio/mpeg")
     except Exception as e:
         print(f"[TTS Endpoint] TTS failed: {e}. Raising HTTP 503.")
         raise HTTPException(status_code=503, detail=f"TTS service unavailable: {str(e)}")
@@ -376,8 +376,8 @@ async def upload_clip(
             raise HTTPException(status_code=400, detail="Transcript/text content is required for text journals")
         try:
             audio_bytes = await asyncio.to_thread(generate_tts_audio, transcript, model="mulberry", speaker="Mia")
-            file_name = f"{current_user.id}/{file_uuid}.wav"
-            content_type = "audio/wav"
+            file_name = f"{current_user.id}/{file_uuid}.mp3"
+            content_type = "audio/mpeg"
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Failed to synthesize text journal audiobook: {str(e)}")
 
@@ -927,7 +927,7 @@ async def assistant_voice_loop(
 
         # ── Phase 2c: TTS synthesis for Chatbot Spoken Response ───────────────
         tts_base64 = ""
-        mime_type = "audio/wav"
+        mime_type = "audio/mpeg"
         try:
             tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, model="muga")
             tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")

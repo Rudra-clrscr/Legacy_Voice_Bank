@@ -266,7 +266,7 @@ async def process_unified_voice_query(
             "clip": clip_payload,
             "audio_available": True,
             "audio_base64": base64.b64encode(audio_data).decode("utf-8"),
-            "mime_type": "audio/wav",
+            "mime_type": "audio/mpeg",
             "synthesis_tier": "rumik_tts",
             "stt_method": stt_method,
             "latency_ms": round((time.time() - t_start) * 1000, 2)
