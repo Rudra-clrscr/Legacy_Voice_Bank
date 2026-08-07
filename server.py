@@ -779,10 +779,18 @@ def assistant_chat(body: dict, current_user=Depends(get_current_user)):
                             }
                             clip_context = f'Clip titled "{found["title"]}": "{found["transcript"]}"'
 
+                archive_summary = ""
+                if clips_for_search:
+                    archive_summary = "\n\nHere is a summary of all memories available in their archive. You can reference them or bring them up naturally to make friendly small talk:\n"
+                    for clip in clips_for_search:
+                        snippet = clip["transcript"][:120] + "..." if len(clip["transcript"]) > 120 else clip["transcript"]
+                        archive_summary += f'- Clip "{clip["title"]}": "{snippet}"\n'
+
                 system_prompt = build_system_prompt("recipient", {
                     "narrator_name": narrator_name,
                     "has_connection": True,
-                    "clip_context": clip_context
+                    "clip_context": clip_context,
+                    "archive_summary": archive_summary
                 })
 
         raw_reply = chat_completion(messages[-10:], system_prompt)
@@ -918,10 +926,18 @@ async def assistant_voice_loop(
                 narrator_data = narrators_dict[active_narrator_id]
                 narrator_name = narrator_data.get("name", "your loved one")
 
+            archive_summary = ""
+            if clips_for_search:
+                archive_summary = "\n\nHere is a summary of all memories available in their archive. You can reference them or bring them up naturally to make friendly small talk:\n"
+                for clip in clips_for_search:
+                    snippet = clip["transcript"][:120] + "..." if len(clip["transcript"]) > 120 else clip["transcript"]
+                    archive_summary += f'- Clip "{clip["title"]}": "{snippet}"\n'
+
             system_prompt = build_system_prompt("recipient", {
                 "narrator_name": narrator_name,
                 "has_connection": True,
-                "clip_context": clip_context
+                "clip_context": clip_context,
+                "archive_summary": archive_summary
             })
 
         # ── Phase 2b: Chat completion (async, non-blocking) ───────────────────
