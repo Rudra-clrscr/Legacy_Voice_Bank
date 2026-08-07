@@ -929,7 +929,7 @@ async def assistant_voice_loop(
         tts_base64 = ""
         mime_type = "audio/wav"
         try:
-            tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, model="mulberry", speaker="Mia")
+            tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, model="muga")
             tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
         except Exception as e:
             print(f"[Voice Loop TTS] Synthesis failed: {e}")
