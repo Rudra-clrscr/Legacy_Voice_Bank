@@ -182,6 +182,9 @@ export default function LandingPage() {
               </AnimatePresence>
             </div>
             
+            <Link to="/verify" className="text-sm font-medium text-secondary hover:text-primary transition-colors hidden sm:block mr-2">
+              Verify Voice
+            </Link>
             <Link to="/login" className="text-sm font-medium text-secondary hover:text-primary transition-colors hidden sm:block">
               Sign In
             </Link>
@@ -528,9 +531,16 @@ export default function LandingPage() {
             </div>
             <span className="font-serif font-semibold text-sm">Pratidhvani</span>
           </div>
-          <p className="text-[11px] text-secondary font-light text-center md:text-right max-w-sm">
-            Designed with deep respect, care, and empathy to keep memories alive in their truest, warmest form.
-          </p>
+          <div className="flex flex-col items-center md:items-end gap-3">
+            <p className="text-[11px] text-secondary font-light text-center md:text-right max-w-sm">
+              Designed with deep respect, care, and empathy to keep memories alive in their truest, warmest form.
+            </p>
+            <div className="flex gap-4">
+              <Link to="/verify" className="text-[10px] text-accent hover:underline font-semibold uppercase tracking-wider">
+                Verify Legacy Voice Prints
+              </Link>
+            </div>
+          </div>
           <span className="text-[10px] text-secondary/50 font-light">
             &copy; {new Date().getFullYear()} Pratidhvani
           </span>

@@ -173,7 +173,13 @@ def fetch_profile(current_user=Depends(get_current_user)):
         "id": current_user.id,
         "email": current_user.email,
         "name": profile.get("name", "User"),
-        "role": profile.get("role", "narrator")
+        "role": profile.get("role", "narrator"),
+        "voice_consent_signed": profile.get("voice_consent_signed", False),
+        "voice_consent_signature": profile.get("voice_consent_signature", ""),
+        "voice_consent_date": profile.get("voice_consent_date", ""),
+        "executor_email": profile.get("executor_email", ""),
+        "executor_name": profile.get("executor_name", ""),
+        "executor_activated": profile.get("executor_activated", False)
     }
 
 @app.put("/api/auth/profile")
@@ -219,13 +225,25 @@ def update_user_role(body: dict, current_user=Depends(get_current_user)):
 # ─── TTS & STT Endpoints ────────────────────────────────────────────────────
 
 @app.post("/api/tts")
-async def text_to_speech(body: dict):
+async def text_to_speech(body: dict, current_user=Depends(get_current_user)):
     text = body.get("text", "")
     if not text:
         raise HTTPException(status_code=400, detail="Text parameter is required")
     
     try:
         audio_content = generate_tts_audio(text, model="mulberry", speaker="Mia")
+        
+        # Register in authenticity database
+        profile = get_user_profile(current_user.id)
+        patient_id = current_user.id
+        if profile["role"] == "recipient":
+            client = get_supabase()
+            connections = client.table("recipients").select("patient_id").eq("email", current_user.email).execute()
+            if connections.data:
+                patient_id = connections.data[0]["patient_id"]
+                
+        register_voice_hash(patient_id, audio_content, text)
+        
         return Response(content=audio_content, media_type="audio/mpeg")
     except Exception as e:
         print(f"[TTS Endpoint] TTS failed: {e}. Raising HTTP 503.")
@@ -305,15 +323,14 @@ def get_clips(current_user=Depends(get_current_user)):
             recipient_ids = [c["id"] for c in connections.data]
             
             # Fetch clips with general 'shared' visibility or explicit access_grant
-            # Postgrest filtering for OR:
-            # We fetch all clips for these patient_ids
             all_clips_resp = client.table("clips").select("*").in_("patient_id", patient_ids).order("created_at", desc=True).execute()
             if not all_clips_resp.data:
                 return []
                 
-            # Filter clips:
-            # 1. Unlocked (now or past release date)
-            # 2. Shared visibility OR has an access grant
+            # Fetch profiles of narrators to verify if executor has activated release
+            narrators_resp = client.table("profiles").select("id, executor_activated").in_("id", patient_ids).execute()
+            narrators_activated = {n["id"]: n.get("executor_activated", False) for n in narrators_resp.data} if narrators_resp.data else {}
+
             # Let's get access grants for this recipient
             grants_resp = client.table("access_grants").select("clip_id").in_("recipient_id", recipient_ids).execute()
             granted_clip_ids = {g["clip_id"] for g in grants_resp.data} if grants_resp.data else set()
@@ -335,8 +352,8 @@ def get_clips(current_user=Depends(get_current_user)):
                     except Exception:
                         pass
                 elif clip["release_rule"] == "event":
-                    # For demo: event-triggered is unlocked. In production, requires executor approval
-                    is_unlocked = True
+                    # Requires executor approval
+                    is_unlocked = narrators_activated.get(clip["patient_id"], False)
 
                 if is_unlocked:
                     if clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids:
@@ -628,6 +645,10 @@ def ask_question(query: str, current_user=Depends(get_current_user)):
         if not all_clips_resp.data:
             return {"found": False, "message": "No memory files exist in the vault."}
             
+        # Fetch profiles of narrators to verify if executor has activated release
+        narrators_resp = client.table("profiles").select("id, executor_activated").in_("id", patient_ids).execute()
+        narrators_activated = {n["id"]: n.get("executor_activated", False) for n in narrators_resp.data} if narrators_resp.data else {}
+
         # Get recipient grants
         granted_clip_ids = set()
         if recipient_ids:
@@ -651,7 +672,7 @@ def ask_question(query: str, current_user=Depends(get_current_user)):
                 except Exception:
                     pass
             elif clip["release_rule"] == "event":
-                is_unlocked = True
+                is_unlocked = narrators_activated.get(clip["patient_id"], False)
 
             if is_unlocked:
                 if clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids or profile["role"] == "narrator":
@@ -740,6 +761,10 @@ def assistant_chat(body: dict, current_user=Depends(get_current_user)):
                 grants_resp = client.table("access_grants").select("clip_id").in_("recipient_id", recipient_ids).execute()
                 granted_clip_ids = {g["clip_id"] for g in grants_resp.data} if grants_resp.data else set()
 
+                # Fetch profiles of narrators to verify if executor has activated release
+                narrators_resp = client.table("profiles").select("id, executor_activated").in_("id", patient_ids).execute()
+                narrators_activated = {n["id"]: n.get("executor_activated", False) for n in narrators_resp.data} if narrators_resp.data else {}
+
                 import datetime
                 now = datetime.datetime.now(datetime.timezone.utc)
 
@@ -756,7 +781,7 @@ def assistant_chat(body: dict, current_user=Depends(get_current_user)):
                         except Exception:
                             pass
                     elif clip["release_rule"] == "event":
-                        is_unlocked = True
+                        is_unlocked = narrators_activated.get(clip["patient_id"], False)
                     if is_unlocked and (clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids):
                         clips_for_search.append(clip)
 
@@ -901,7 +926,9 @@ async def assistant_voice_loop(
                     except Exception:
                         pass
                 elif clip["release_rule"] == "event":
-                    is_unlocked = True
+                    patient_id = clip["patient_id"]
+                    narrator_p = narrators_dict.get(patient_id, {})
+                    is_unlocked = narrator_p.get("executor_activated", False)
                 if is_unlocked and (clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids):
                     clips_for_search.append(clip)
 
@@ -950,6 +977,10 @@ async def assistant_voice_loop(
         try:
             tts_bytes = await asyncio.to_thread(generate_tts_audio, safe_reply, model="muga")
             tts_base64 = base64.b64encode(tts_bytes).decode("utf-8")
+            
+            # Register in authenticity registry
+            active_narrator_id = target_narrator_id or (patient_ids[0] if patient_ids else None)
+            register_voice_hash(active_narrator_id or current_user.id, tts_bytes, safe_reply)
         except Exception as e:
             print(f"[Voice Loop TTS] Synthesis failed: {e}")
             tts_base64 = ""
@@ -993,6 +1024,190 @@ async def ask_voice(
         client_text_query=text,
         supabase_client=client
     )
+
+
+# ─── Hackathon Upgrades Helpers & Endpoints ─────────────────────────────────
+
+def register_voice_hash(patient_id: str, audio_bytes: bytes, transcript: str):
+    if not patient_id:
+        return
+    import hashlib
+    audio_hash = hashlib.sha256(audio_bytes).hexdigest()
+    client = get_supabase()
+    try:
+        client.table("voice_authenticity_registry").insert({
+            "patient_id": patient_id,
+            "audio_hash": audio_hash,
+            "transcript": transcript
+        }).execute()
+        print(f"[Authenticity Registry] Registered voice hash {audio_hash[:8]}... for patient {patient_id}")
+    except Exception as e:
+        print(f"[Authenticity Registry] Failed to register voice hash: {e}")
+
+@app.put("/api/auth/voice-consent")
+def update_voice_consent(body: dict, current_user=Depends(get_current_user)):
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    if profile["role"] != "narrator":
+        raise HTTPException(status_code=403, detail="Only narrators can sign consent deeds")
+        
+    signature = body.get("signature")
+    if not signature:
+        raise HTTPException(status_code=400, detail="Signature is required")
+        
+    import datetime
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        resp = client.table("profiles").update({
+            "voice_consent_signed": True,
+            "voice_consent_signature": signature,
+            "voice_consent_date": now
+        }).eq("id", current_user.id).execute()
+        return {"status": "success", "profile": resp.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/auth/executor")
+def update_executor(body: dict, current_user=Depends(get_current_user)):
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    if profile["role"] != "narrator":
+        raise HTTPException(status_code=403, detail="Only narrators can designate executors")
+        
+    email = body.get("email")
+    name = body.get("name")
+    
+    if not email or not name:
+        raise HTTPException(status_code=400, detail="Executor email and name are required")
+        
+    try:
+        resp = client.table("profiles").update({
+            "executor_email": email.strip().lower(),
+            "executor_name": name.strip()
+        }).eq("id", current_user.id).execute()
+        return {"status": "success", "profile": resp.data[0]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/executor/patients")
+def get_executor_patients(current_user=Depends(get_current_user)):
+    client = get_supabase()
+    current_email = (current_user.email or "").strip().lower()
+    try:
+        resp = client.table("profiles").select("id, name, email, executor_activated, executor_activated_at").eq("executor_email", current_email).execute()
+        return resp.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/executor/release")
+def execute_release(body: dict, current_user=Depends(get_current_user)):
+    client = get_supabase()
+    patient_id = body.get("patient_id")
+    if not patient_id:
+        raise HTTPException(status_code=400, detail="Patient ID is required")
+        
+    try:
+        patient_resp = client.table("profiles").select("*").eq("id", patient_id).execute()
+        if not patient_resp.data:
+            raise HTTPException(status_code=404, detail="Patient profile not found")
+            
+        patient = patient_resp.data[0]
+        executor_email = (patient.get("executor_email") or "").strip().lower()
+        current_email = (current_user.email or "").strip().lower()
+        
+        if not executor_email or executor_email != current_email:
+            raise HTTPException(status_code=403, detail="You are not authorized as the executor for this narrator")
+            
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        
+        resp = client.table("profiles").update({
+            "executor_activated": True,
+            "executor_activated_at": now
+        }).eq("id", patient_id).execute()
+        
+        return {"status": "success", "profile": resp.data[0]}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/verify-voice")
+async def verify_voice(file: UploadFile = File(...)):
+    audio_bytes = await file.read()
+    import hashlib
+    audio_hash = hashlib.sha256(audio_bytes).hexdigest()
+    
+    client = get_supabase()
+    try:
+        resp = client.table("voice_authenticity_registry").select("*, profiles(name)").eq("audio_hash", audio_hash).execute()
+        if resp.data:
+            record = resp.data[0]
+            narrator_name = record.get("profiles", {}).get("name", "Legacy Voice")
+            return {
+                "authentic": True,
+                "hash": audio_hash,
+                "narrator_name": narrator_name,
+                "generated_at": record.get("generated_at"),
+                "transcript": record.get("transcript")
+            }
+        else:
+            return {
+                "authentic": False,
+                "hash": audio_hash,
+                "message": "This audio file does not match any registered legacy voice prints. It may be unauthorized or modified."
+            }
+    except Exception as e:
+        print(f"[Verify Voice] Error verifying audio hash: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to verify audio: {str(e)}")
+
+@app.post("/api/verify-voice/hash")
+async def verify_voice_hash(body: dict):
+    audio_hash = body.get("hash")
+    if not audio_hash:
+        raise HTTPException(status_code=400, detail="Hash parameter is required")
+        
+    client = get_supabase()
+    try:
+        resp = client.table("voice_authenticity_registry").select("*, profiles(name)").eq("audio_hash", audio_hash).execute()
+        if resp.data:
+            record = resp.data[0]
+            narrator_name = record.get("profiles", {}).get("name", "Legacy Voice")
+            return {
+                "authentic": True,
+                "hash": audio_hash,
+                "narrator_name": narrator_name,
+                "generated_at": record.get("generated_at"),
+                "transcript": record.get("transcript")
+            }
+            return {
+                "authentic": False,
+                "hash": audio_hash,
+                "message": "This hash does not match any registered legacy voice prints."
+            }
+    except Exception as e:
+        print(f"[Verify Voice] Error verifying hash: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/recipient/narrators")
+def get_recipient_narrators(current_user=Depends(get_current_user)):
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+    if profile["role"] != "recipient":
+        raise HTTPException(status_code=403, detail="Only recipients can view connected narrators")
+        
+    try:
+        connections = client.table("recipients").select("patient_id").eq("email", current_user.email).execute()
+        if not connections.data:
+            return []
+            
+        patient_ids = [c["patient_id"] for c in connections.data]
+        resp = client.table("profiles").select("id, name, email, voice_consent_signed, voice_consent_signature, voice_consent_date, executor_activated, executor_activated_at").in_("id", patient_ids).execute()
+        return resp.data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 

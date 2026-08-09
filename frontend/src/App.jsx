@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import VerifyVoice from './pages/VerifyVoice';
 
 const ProtectedRoute = ({ children }) => {
   const { session, loading } = useAuth();
@@ -62,6 +63,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
+          <Route path="/verify" element={<VerifyVoice />} />
           <Route
             path="/dashboard"
             element={

@@ -71,6 +71,7 @@ export default function Dashboard() {
   const [profile, setProfile] = useState({ name: 'User', role: 'narrator' });
   const [activeTab, setActiveTab] = useState('capture'); // 'capture', 'vault', 'recipients', 'collab'
   const [switchingRole, setSwitchingRole] = useState(false);
+  const [executorPatients, setExecutorPatients] = useState([]);
   
   // API Call Headers
   const getHeaders = useCallback(() => ({
@@ -114,6 +115,16 @@ export default function Dashboard() {
         toast.error(`Error synchronizing profile: ${err.response?.data?.detail || err.message}`);
       });
   }, [session]);
+
+  // Fetch executor assignments
+  useEffect(() => {
+    if (!session) return;
+    axios.get(`${API}/api/executor/patients`, getHeaders())
+      .then(res => setExecutorPatients(res.data))
+      .catch(err => console.error("Failed to load executor assignments:", err));
+  }, [session, getHeaders]);
+
+  const isExecutor = executorPatients.length > 0;
 
   return (
     <div className="min-h-screen bg-background text-primary flex flex-col font-sans">
@@ -213,6 +224,19 @@ export default function Dashboard() {
                 <MessageSquare className="w-4 h-4" />
                 <span>Collaboration Wall</span>
               </button>
+              {isExecutor && (
+                <button
+                  onClick={() => setActiveTab('executor')}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all border border-dashed ${
+                    activeTab === 'executor'
+                      ? 'bg-accent text-background border-accent font-semibold shadow'
+                      : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border-border/40 hover:border-gray-800'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Executor Lockbox</span>
+                </button>
+              )}
             </>
           ) : (
             <>
@@ -249,6 +273,19 @@ export default function Dashboard() {
                 <MessageSquare className="w-4 h-4" />
                 <span>Collaboration Wall</span>
               </button>
+              {isExecutor && (
+                <button
+                  onClick={() => setActiveTab('executor')}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all border border-dashed ${
+                    activeTab === 'executor'
+                      ? 'bg-accent text-background border-accent font-semibold shadow'
+                      : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border-border/40 hover:border-gray-800'
+                  }`}
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Executor Lockbox</span>
+                </button>
+              )}
             </>
           )}
         </aside>
@@ -257,17 +294,19 @@ export default function Dashboard() {
         <main className="lg:col-span-3 bg-surface border border-border rounded-xl p-6 shadow-sm min-h-[500px]">
           {profile.role === 'narrator' ? (
             <>
-              {activeTab === 'capture' && <RecordingStudio getHeaders={getHeaders} />}
+              {activeTab === 'capture' && <RecordingStudio getHeaders={getHeaders} profile={profile} setProfile={setProfile} />}
               {activeTab === 'vault' && <VaultView getHeaders={getHeaders} />}
               {activeTab === 'recipients' && <RecipientsView getHeaders={getHeaders} />}
               {activeTab === 'companion' && <AssistantChatView getHeaders={getHeaders} role="narrator" />}
               {activeTab === 'collab' && <CollabWallView getHeaders={getHeaders} role="narrator" />}
+              {activeTab === 'executor' && <ExecutorLockboxView getHeaders={getHeaders} executorPatients={executorPatients} setExecutorPatients={setExecutorPatients} />}
             </>
           ) : (
             <>
               {activeTab === 'archive' && <ArchiveView getHeaders={getHeaders} />}
               {activeTab === 'companion' && <AssistantChatView getHeaders={getHeaders} role="recipient" />}
               {activeTab === 'collab' && <CollabWallView getHeaders={getHeaders} role="recipient" />}
+              {activeTab === 'executor' && <ExecutorLockboxView getHeaders={getHeaders} executorPatients={executorPatients} setExecutorPatients={setExecutorPatients} />}
             </>
           )}
         </main>
@@ -280,11 +319,24 @@ export default function Dashboard() {
 // ─────────────────────────────────────────────────────────────────────────────
 // NARRATOR COMPONENT: Recording Studio
 // ─────────────────────────────────────────────────────────────────────────────
-function RecordingStudio({ getHeaders }) {
+function RecordingStudio({ getHeaders, profile, setProfile }) {
   const [selectedTheme, setSelectedTheme] = useState(PROMPT_THEMES[0]);
   const [currentPrompt, setCurrentPrompt] = useState(PROMPT_THEMES[0].prompts[0]);
   const [sessionRecord, setSessionRecord] = useState(null);
   
+  // Hackathon Upgrade Consent & Executor states
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [showCertificateModal, setShowCertificateModal] = useState(false);
+  const [executorEmail, setExecutorEmail] = useState(profile.executor_email || '');
+  const [executorName, setExecutorName] = useState(profile.executor_name || '');
+  const [savingExecutor, setSavingExecutor] = useState(false);
+
+  // Sync state with profile updates
+  useEffect(() => {
+    setExecutorEmail(profile.executor_email || '');
+    setExecutorName(profile.executor_name || '');
+  }, [profile]);
+
   // Recorder states
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -523,6 +575,48 @@ function RecordingStudio({ getHeaders }) {
     }
   };
 
+  const handleSaveConsent = async (signatureDataUrl) => {
+    try {
+      const res = await axios.put(`${API}/api/auth/voice-consent`, { signature: signatureDataUrl }, getHeaders());
+      toast.success('Deed of Voice Preservation & Consent signed successfully!');
+      setProfile(prev => ({
+        ...prev,
+        voice_consent_signed: true,
+        voice_consent_signature: signatureDataUrl,
+        voice_consent_date: res.data.profile.voice_consent_date
+      }));
+      setShowConsentModal(false);
+      posthog.capture('voice_consent_signed');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to sign consent deed. Please try again.');
+    }
+  };
+
+  const handleSaveExecutor = async (e) => {
+    e.preventDefault();
+    if (!executorEmail || !executorName) {
+      toast.error('Please fill in both executor name and email.');
+      return;
+    }
+    setSavingExecutor(true);
+    try {
+      const res = await axios.put(`${API}/api/auth/executor`, { email: executorEmail, name: executorName }, getHeaders());
+      toast.success('Digital Executor designated successfully!');
+      setProfile(prev => ({
+        ...prev,
+        executor_email: executorEmail,
+        executor_name: executorName
+      }));
+      posthog.capture('executor_designated');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to designate executor. Please try again.');
+    } finally {
+      setSavingExecutor(false);
+    }
+  };
+
   const formatTime = (secs) => {
     const mins = Math.floor(secs / 60);
     const remains = secs % 60;
@@ -753,6 +847,186 @@ function RecordingStudio({ getHeaders }) {
 
         </div>
       </div>
+
+      {/* Hackathon Additions: Consent & Trustee Settings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-border pt-6 mt-6">
+        {/* Consent Card */}
+        <div className="bg-surface/50 border border-border rounded-xl p-5 shadow-[3px_3px_0px_#2A160D] space-y-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[10px] text-accent uppercase tracking-widest font-semibold">Ethical Consent</span>
+              <h3 className="font-serif font-bold text-base mt-1 text-primary">Voice Legacy Consent Deed</h3>
+            </div>
+            <span className={`text-[10px] px-2.5 py-0.5 border rounded uppercase font-semibold ${
+              profile.voice_consent_signed 
+                ? 'bg-success/15 border-success text-success' 
+                : 'bg-danger/15 border-danger text-danger'
+            }`}>
+              {profile.voice_consent_signed ? "Signed & Active" : "Unsigned / Pending"}
+            </span>
+          </div>
+
+          <p className="text-xs text-secondary leading-relaxed font-sans">
+            Protect your vocal identity. Signing your legacy deed ensures that your cloned voice avatar remains a secure, authorized asset that can only be shared with verified family members.
+          </p>
+
+          {profile.voice_consent_signed ? (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCertificateModal(true)}
+                className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline bg-accent/5 border border-accent/20 rounded px-3.5 py-1.5 font-bold shadow-[2px_2px_0px_#2A160D] hover:shadow-[1px_1px_0px_#2A160D] transition-all"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>View Authenticity Certificate</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowConsentModal(true)}
+              className="inline-flex items-center gap-1.5 text-xs bg-accent text-background border border-border rounded px-4 py-2 font-bold shadow-[2px_2px_0px_#2A160D] hover:bg-opacity-95 transition-all"
+            >
+              <Mic className="w-3.5 h-3.5 text-background" />
+              <span>Authorize & Sign Deed</span>
+            </button>
+          )}
+        </div>
+
+        {/* Executor Card */}
+        <div className="bg-surface/50 border border-border rounded-xl p-5 shadow-[3px_3px_0px_#2A160D] space-y-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[10px] text-accent uppercase tracking-widest font-semibold font-sans">Digital Trustee</span>
+              <h3 className="font-serif font-bold text-base mt-1 text-primary font-serif">Designate Legacy Executor</h3>
+            </div>
+            <span className={`text-[10px] px-2.5 py-0.5 border rounded uppercase font-semibold ${
+              profile.executor_email 
+                ? 'bg-success/15 border-success text-success' 
+                : 'bg-danger/15 border-danger text-danger'
+            }`}>
+              {profile.executor_email ? "Designated" : "No Executor"}
+            </span>
+          </div>
+
+          <p className="text-xs text-secondary leading-relaxed font-sans">
+            Name a trusted family member or trustee who will hold the release authority. Clips marked to release on a "life event" will remain locked until they authorize the release.
+          </p>
+
+          <form onSubmit={handleSaveExecutor} className="space-y-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <input
+                type="text"
+                required
+                value={executorName}
+                onChange={(e) => setExecutorName(e.target.value)}
+                placeholder="Executor Name"
+                className="w-full bg-background border border-border rounded px-3 py-1.5 text-xs text-primary placeholder-secondary outline-none focus:border-accent/40 font-sans"
+              />
+              <input
+                type="email"
+                required
+                value={executorEmail}
+                onChange={(e) => setExecutorEmail(e.target.value)}
+                placeholder="Executor Email"
+                className="w-full bg-background border border-border rounded px-3 py-1.5 text-xs text-primary placeholder-secondary outline-none focus:border-accent/40 font-sans"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={savingExecutor}
+              className="inline-flex items-center gap-1.5 bg-accent text-background border border-border rounded px-4 py-2 text-xs font-bold shadow-[2px_2px_0px_#2A160D] hover:bg-opacity-95 transition-all disabled:opacity-50"
+            >
+              <UserPlus className="w-3.5 h-3.5 text-background" />
+              <span>{savingExecutor ? "Saving..." : "Designate Executor"}</span>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* OVERLAY MODAL: Deed signature pad */}
+      {showConsentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/60 backdrop-blur-sm shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]" onClick={() => setShowConsentModal(false)} />
+          <div className="relative bg-surface border-2 border-border p-6 rounded-2xl shadow-[6px_6px_0px_#2A160D] max-w-lg w-full z-10 space-y-6">
+            <div className="border-b border-border/80 pb-4 text-center">
+              <ShieldCheck className="w-8 h-8 text-accent mx-auto mb-2" />
+              <h3 className="font-serif font-bold text-xl text-primary font-serif">Deed of Voice Preservation & Consent</h3>
+              <p className="text-[10px] text-secondary mt-1 font-mono uppercase tracking-wider">Pratidhvani Personal Legacy Platform</p>
+            </div>
+            
+            <div className="bg-background/40 border border-border/60 rounded-xl p-4 text-[11px] text-secondary leading-relaxed font-serif max-h-48 overflow-y-auto space-y-2">
+              <p>
+                <strong>I, {profile.name || "the undersigned"}</strong>, hereby grant explicit authorization to Pratidhvani to capture, preserve, and synthesize my vocal patterns, recorded audios, and transcript dialogue.
+              </p>
+              <p>
+                This authorization is granted solely for the purposes of historical preservation, legacy memory retrieval, and private family comfort as designated by my profile.
+              </p>
+              <p>
+                <strong>I declare that:</strong>
+              </p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>This authorization is granted of my own free will.</li>
+                <li>I retain ultimate ownership of my voice profile.</li>
+                <li>I designate my Executor to manage release events.</li>
+                <li>My synthesized vocal avatar is consent-gated and restricted.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-[10px] uppercase tracking-widest text-secondary font-semibold font-sans">Draw signature on pad below</label>
+              <SignaturePad 
+                onSave={handleSaveConsent}
+                onCancel={() => setShowConsentModal(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OVERLAY MODAL: Authenticity Certificate */}
+      {showCertificateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-background/60 backdrop-blur-sm shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]" onClick={() => setShowCertificateModal(false)} />
+          <div className="relative bg-surface border-2 border-border p-6 rounded-2xl shadow-[6px_6px_0px_#2A160D] max-w-md w-full z-10 text-center space-y-6 font-sans">
+            <div className="p-4 border-2 border-dashed border-success/40 bg-success/5 rounded-2xl space-y-4">
+              <div className="w-12 h-12 bg-success text-background border border-border rounded-full flex items-center justify-center mx-auto shadow-[2px_2px_0px_#2A160D]">
+                <ShieldCheck className="w-6 h-6 text-background" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[9px] uppercase tracking-wider text-success font-semibold font-sans">Ethical Legacy Certified</span>
+                <h3 className="font-serif font-bold text-xl text-primary font-serif">Certificate of Authenticity</h3>
+                <p className="text-[10px] text-secondary font-mono">Issued to: {profile.name}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 border-y border-border/80 py-4 text-xs text-secondary text-left leading-relaxed font-sans">
+              <div className="flex justify-between border-b border-border/40 pb-2">
+                <span>Verified Holder:</span>
+                <span className="font-semibold text-primary">{profile.name}</span>
+              </div>
+              <div className="flex justify-between border-b border-border/40 pb-2">
+                <span>Authorization Date:</span>
+                <span className="font-mono">{profile.voice_consent_date ? new Date(profile.voice_consent_date).toLocaleString() : 'N/A'}</span>
+              </div>
+              <div className="flex flex-col gap-2 pt-1.5">
+                <span className="font-semibold text-[10px] uppercase tracking-wider text-primary">Recorded Consent Deed Signature:</span>
+                <div className="bg-white border border-border rounded-lg p-2 flex justify-center max-h-24 overflow-hidden">
+                  <img src={profile.voice_consent_signature} alt="Deed Signature" className="object-contain max-h-16" />
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowCertificateModal(false)}
+              className="w-full text-center text-xs border-2 border-border hover:bg-background/25 py-2 rounded font-bold transition-all shadow-[2px_2px_0px_#2A160D]"
+            >
+              Close Certificate
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -1575,6 +1849,9 @@ function AskThemView({ getHeaders }) {
 function ArchiveView({ getHeaders }) {
   const [clips, setClips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [narrators, setNarrators] = useState([]);
+  const [showCertificateModal, setShowCertificateModal] = useState(false);
+  const [selectedNarrator, setSelectedNarrator] = useState(null);
 
   const handleReadAloud = async (text) => {
     try {
@@ -1614,14 +1891,50 @@ function ArchiveView({ getHeaders }) {
       .then(res => setClips(res.data))
       .catch(() => toast.error('Failed to load archive.'))
       .finally(() => setLoading(false));
+
+    axios.get(`${API}/api/recipient/narrators`, getHeaders())
+      .then(res => setNarrators(res.data))
+      .catch(err => console.error("Failed to load narrators:", err));
   }, [getHeaders]);
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-serif font-semibold text-primary">Preserved Archive</h2>
-        <p className="text-xs text-secondary">Browse the unlocked memories and voice records shared with you.</p>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-serif font-semibold text-primary">Preserved Archive</h2>
+          <p className="text-xs text-secondary">Browse the unlocked memories and voice records shared with you.</p>
+        </div>
       </div>
+
+      {/* Ethical Consent & Authenticity verified banner */}
+      {narrators.map(narrator => (
+        <div key={narrator.id} className="bg-surface/40 border border-border rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-sm font-sans">
+          <div className="flex items-center gap-2.5">
+            <span className="p-1.5 bg-success/15 border border-success/30 text-success rounded-lg shrink-0">
+              <ShieldCheck className="w-4 h-4" />
+            </span>
+            <div className="text-left">
+              <p className="font-semibold text-primary">Ethical Identity Verified: {narrator.name}</p>
+              <p className="text-[10px] text-secondary">
+                {narrator.voice_consent_signed 
+                  ? "Narrator voice preservation deed is signed, verified, and legally registered." 
+                  : "Deed is pending signature. Voice synthesis features are locked."}
+              </p>
+            </div>
+          </div>
+          {narrator.voice_consent_signed && (
+            <button
+              onClick={() => {
+                setSelectedNarrator(narrator);
+                setShowCertificateModal(true);
+              }}
+              className="text-[10px] bg-accent text-background font-bold px-3 py-1.5 border border-border rounded uppercase tracking-wider shadow-[2px_2px_0px_#2A160D] shrink-0 hover:bg-opacity-95 transition-all"
+            >
+              View Certificate
+            </button>
+          )}
+        </div>
+      ))}
 
       {loading ? (
         <div className="h-64 flex items-center justify-center text-secondary">
@@ -1666,6 +1979,50 @@ function ArchiveView({ getHeaders }) {
           ))}
         </div>
       )}
+
+      {/* OVERLAY MODAL: Authenticity Certificate for Recipient */}
+      {showCertificateModal && selectedNarrator && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-sans">
+          <div className="absolute inset-0 bg-background/60 backdrop-blur-sm shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]" onClick={() => setShowCertificateModal(false)} />
+          <div className="relative bg-surface border-2 border-border p-6 rounded-2xl shadow-[6px_6px_0px_#2A160D] max-w-md w-full z-10 text-center space-y-6">
+            <div className="p-4 border-2 border-dashed border-success/40 bg-success/5 rounded-2xl space-y-4">
+              <div className="w-12 h-12 bg-success text-background border border-border rounded-full flex items-center justify-center mx-auto shadow-[2px_2px_0px_#2A160D]">
+                <ShieldCheck className="w-6 h-6 text-background" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[9px] uppercase tracking-wider text-success font-semibold">Ethical Legacy Certified</span>
+                <h3 className="font-serif font-bold text-xl text-primary font-serif">Certificate of Authenticity</h3>
+                <p className="text-[10px] text-secondary font-mono">Issued to: {selectedNarrator.name}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 border-y border-border/80 py-4 text-xs text-secondary text-left leading-relaxed">
+              <div className="flex justify-between border-b border-border/40 pb-2">
+                <span>Verified Narrator:</span>
+                <span className="font-semibold text-primary">{selectedNarrator.name}</span>
+              </div>
+              <div className="flex justify-between border-b border-border/40 pb-2">
+                <span>Authorization Date:</span>
+                <span className="font-mono">{selectedNarrator.voice_consent_date ? new Date(selectedNarrator.voice_consent_date).toLocaleString() : 'N/A'}</span>
+              </div>
+              <div className="flex flex-col gap-2 pt-1.5">
+                <span className="font-semibold text-[10px] uppercase tracking-wider text-primary">Recorded Consent Deed Signature:</span>
+                <div className="bg-white border border-border rounded-lg p-2 flex justify-center max-h-24 overflow-hidden">
+                  <img src={selectedNarrator.voice_consent_signature} alt="Deed Signature" className="object-contain max-h-16" />
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowCertificateModal(false)}
+              className="w-full text-center text-xs border-2 border-border hover:bg-background/25 py-2 rounded font-bold transition-all shadow-[2px_2px_0px_#2A160D]"
+            >
+              Close Certificate
+            </button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -2388,3 +2745,221 @@ function CollabWallView({ getHeaders, role }) {
     </div>
   );
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRUSTEE COMPONENT: Executor Lockbox Portal
+// ─────────────────────────────────────────────────────────────────────────────
+function ExecutorLockboxView({ getHeaders, executorPatients, setExecutorPatients }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleRelease = async (patientId, patientName) => {
+    const confirmed = window.confirm(`Are you absolutely sure you want to authorize the Deed of Release for ${patientName}? This will unlock all post-transition memories and active voice preservation features for their recipients.`);
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      const res = await axios.post(`${API}/api/executor/release`, { patient_id: patientId }, getHeaders());
+      toast.success(`Deed of Release authorized successfully for ${patientName}!`);
+      setExecutorPatients(prev => prev.map(p => p.id === patientId ? { ...p, executor_activated: true, executor_activated_at: res.data.profile.executor_activated_at } : p));
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to authorize release. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-serif font-semibold text-primary flex items-center gap-2">
+          <ShieldCheck className="w-6 h-6 text-accent" />
+          <span>Executor Lockbox</span>
+        </h2>
+        <p className="text-xs text-secondary">Manage legacy releases for patients who have designated you as their trustee.</p>
+      </div>
+
+      <div className="space-y-4">
+        {executorPatients.map(patient => (
+          <div key={patient.id} className="bg-surface/50 border-2 border-border rounded-xl p-5 shadow-[4px_4px_0px_#2A160D] space-y-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <span className="text-[10px] bg-accent/15 border border-accent/30 text-accent px-2 py-0.5 rounded uppercase font-semibold">Narrator Account</span>
+                <h3 className="font-serif font-bold text-lg text-primary mt-1.5">{patient.name}</h3>
+                <p className="text-xs text-secondary">{patient.email}</p>
+              </div>
+              <span className={`text-xs px-2.5 py-1 border rounded-lg font-semibold uppercase tracking-wider ${
+                patient.executor_activated 
+                  ? 'bg-success/15 border-success text-success' 
+                  : 'bg-danger/15 border-danger text-danger'
+              }`}>
+                {patient.executor_activated ? "Released / Active" : "Locked / Sealed"}
+              </span>
+            </div>
+
+            {patient.executor_activated ? (
+              <div className="bg-success/5 border border-success/30 rounded-lg p-3 text-xs text-success leading-relaxed flex items-start gap-2">
+                <Check className="w-4 h-4 mt-0.5 shrink-0 text-success" />
+                <div>
+                  <p className="font-bold">Legacy Release Authorized</p>
+                  <p className="text-[10px] opacity-80">You triggered the release deed on {new Date(patient.executor_activated_at).toLocaleString()}. All event-released clips are now active and the conversational avatar is online for their family members.</p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-danger/5 border border-danger/30 rounded-lg p-4 space-y-3">
+                <div className="text-xs text-danger leading-relaxed flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0 text-danger" />
+                  <div>
+                    <p className="font-bold">Trustee Release Deed Pending</p>
+                    <p className="text-[10px] opacity-80 font-sans">The narrator's post-transition memories (marked as release on "event") are currently encrypted and hidden from their family recipients. They will only be unveiled once you sign the Deed of Release below.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleRelease(patient.id, patient.name)}
+                  disabled={loading}
+                  className="bg-danger hover:bg-danger/90 border-2 border-border text-background font-bold text-xs uppercase tracking-wider px-5 py-2.5 rounded shadow-[3px_3px_0px_#2A160D] transition-all disabled:opacity-50 flex items-center gap-2"
+                >
+                  <ShieldCheck className="w-4 h-4 text-background" />
+                  <span>Authorize Deed of Release</span>
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILITY: Signature drawing pad using HTML5 Canvas
+// ─────────────────────────────────────────────────────────────────────────────
+function SignaturePad({ onSave, onCancel }) {
+  const canvasRef = useRef(null);
+  const isDrawing = useRef(false);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    // Set up canvas styling
+    ctx.strokeStyle = '#2A160D'; // primary theme chocolate brown
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    // Clear canvas with white background
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }, []);
+
+  const getCoordinates = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    
+    let clientX, clientY;
+    if (e.touches && e.touches.length > 0) {
+      clientX = e.touches[0].clientX;
+      clientY = e.touches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top
+    };
+  };
+
+  const startDrawing = (e) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const { x, y } = getCoordinates(e);
+    const ctx = canvas.getContext('2d');
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    isDrawing.current = true;
+  };
+
+  const draw = (e) => {
+    e.preventDefault();
+    if (!isDrawing.current) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const { x, y } = getCoordinates(e);
+    const ctx = canvas.getContext('2d');
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    isDrawing.current = false;
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const handleSave = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL('image/png');
+    onSave(dataUrl);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="border border-border rounded-lg bg-white overflow-hidden shadow-inner">
+        <canvas
+          ref={canvasRef}
+          width={400}
+          height={150}
+          onMouseDown={startDrawing}
+          onMouseMove={draw}
+          onMouseUp={stopDrawing}
+          onMouseLeave={stopDrawing}
+          onTouchStart={startDrawing}
+          onTouchMove={draw}
+          onTouchEnd={stopDrawing}
+          className="w-full h-[150px] bg-white cursor-crosshair touch-none"
+        />
+      </div>
+      <div className="flex justify-between items-center gap-2 font-sans">
+        <button
+          type="button"
+          onClick={clearCanvas}
+          className="text-xs border border-border hover:bg-background/25 px-3 py-1.5 rounded transition-all font-semibold"
+        >
+          Clear Pad
+        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-xs border border-border hover:bg-background/25 px-3.5 py-1.5 rounded transition-all font-semibold"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="text-xs bg-accent text-background border border-border hover:bg-opacity-95 px-4.5 py-1.5 rounded transition-all font-bold shadow-[2px_2px_0px_#2A160D]"
+          >
+            Sign Deed
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
