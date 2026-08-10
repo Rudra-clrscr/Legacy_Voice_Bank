@@ -132,37 +132,43 @@ export default function Dashboard() {
     {
       tab: 'capture',
       title: '🎙 Recording Studio',
-      desc: 'This is where you preserve your memories. Try clicking any of the theme cards below (like "Life Stories" or "Values & Beliefs") to see structured prompts designed to guide your reflection.',
+      desc: 'This is where you preserve your memories. Start by recording childhood stories or key values to compile your voice bank.',
+      actionTip: '💡 Try this: Click "Life Stories" below the recording pad to view prompts.',
       selector: 'capture'
     },
     {
       tab: 'capture',
       title: '🎙 Guided Prompt Engine',
-      desc: 'Click through prompts with the "Next Prompt" button in the recording panel. Take a slow breath, review your thoughts, and click the microphone to speak naturally.',
+      desc: 'Take a slow breath, select a prompt question, and click the microphone to speak naturally. The system auto-saves transcripts.',
+      actionTip: '💡 Try this: Click "Next Prompt" to cycle through guided conversation ideas.',
       selector: 'capture'
     },
     {
       tab: 'vault',
       title: '🔒 The Secure Vault',
-      desc: 'Stores and organizes all your recordings. Here, you can review speech transcripts, configure specific recipient access, or securely delete clips.',
+      desc: 'Stores and organizes all your recordings. You can review speech transcripts, set custom recipient locks, or delete clips.',
+      actionTip: '💡 Try this: Look at your list of recordings to check visibility status.',
       selector: 'vault'
     },
     {
       tab: 'vault',
       title: '📈 Vocal Health & Capsule Backups',
-      desc: 'Click "Show Vocal Health Check" on any clip to inspect your pitch, volume, and silence stability. Click the "Export Offline Capsule" button to compile all audios into a standalone offline file.',
+      desc: 'Analyze vocal metrics (pitch, shimmer, jitter) or download a standalone offline backup for safe keeping.',
+      actionTip: '💡 Try this: Click "Show Vocal Health Check" on a clip, or trigger "Export Offline Capsule".',
       selector: 'vault'
     },
     {
       tab: 'cognitive',
       title: '🧠 Cognitive Anchor (DRT)',
-      desc: 'Digital Reminiscence Therapy support. Play chronological memories to guide recollection, or test the "Anchor Me" button to see the comforting grounding message and guided breathing circle.',
+      desc: 'Soothing tools for Dementia and Alzheimer\'s care. Play chronological autobiography lane nodes to stimulate recall.',
+      actionTip: '💡 Try this: Click "Anchor Me" to check out the grounding play button and breathing loop.',
       selector: 'cognitive'
     },
     {
       tab: 'companion',
       title: '🤖 AI Voice Companion',
-      desc: 'Your private memory partner. Ask the chatbot questions about your records or use it to help spark new topics and memories to record.',
+      desc: 'Brainstorm recording ideas or ask questions about your memories. AI searches matching audio snippets dynamically.',
+      actionTip: '💡 Try this: Type a greeting in chat to see how the companion responds.',
       selector: 'companion'
     }
   ];
@@ -171,19 +177,22 @@ export default function Dashboard() {
     {
       tab: 'companion',
       title: '🤖 Ask & Chat',
-      desc: 'Your semantic voice search box. Ask questions about the narrator\'s life stories and the chatbot will search and play back relevant clips in their real voice.',
+      desc: 'Semantic voice query panel. Ask details about the narrator\'s life, and hear the AI play back matching clips in their real voice.',
+      actionTip: '💡 Try this: Type "tell me about your childhood" in the message box.',
       selector: 'companion'
     },
     {
       tab: 'archive',
       title: '📚 Preserved Archive',
-      desc: 'View all voice clips shared with you. Listen to recordings, read transcripts, and click "View Certificate" to view or print the cryptographic Trust Certificate.',
+      desc: 'Timeline of shared entries. You can read transcripts, play recordings, and view safety-authenticity print registries.',
+      actionTip: '💡 Try this: Click "View Certificate" to see the printable cryptographic trust certificate.',
       selector: 'archive'
     },
     {
       tab: 'cognitive',
       title: '🧠 Cognitive Anchor (DRT)',
-      desc: 'Dementia orientation view. If your loved one feels disoriented or experiences sundowning, press "Anchor Me" to play their familiar comforting voice alongside a calming breathing ring.',
+      desc: 'Dementia care orientation. Play the grounding comfort clip and guide the patient\'s breathing during confused periods.',
+      actionTip: '💡 Try this: Click "Anchor Me" to hear the comfort message and guide steady breathing.',
       selector: 'cognitive'
     }
   ];
@@ -275,6 +284,9 @@ export default function Dashboard() {
               >
                 <Mic className="w-4 h-4" />
                 <span>Recording Studio</span>
+                {tourStep !== null && steps[tourStep] && steps[tourStep].tab === 'capture' && (
+                  <span className="ml-auto text-[9px] bg-background border border-border/40 text-accent px-1.5 py-0.2 rounded font-bold animate-pulse">Guide</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('vault')}
@@ -286,6 +298,9 @@ export default function Dashboard() {
               >
                 <Lock className="w-4 h-4" />
                 <span>The Vault</span>
+                {tourStep !== null && steps[tourStep] && steps[tourStep].tab === 'vault' && (
+                  <span className="ml-auto text-[9px] bg-background border border-border/40 text-accent px-1.5 py-0.2 rounded font-bold animate-pulse">Guide</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('recipients')}
@@ -308,6 +323,9 @@ export default function Dashboard() {
               >
                 <Bot className="w-4 h-4" />
                 <span>Companion</span>
+                {tourStep !== null && steps[tourStep] && steps[tourStep].tab === 'companion' && (
+                  <span className="ml-auto text-[9px] bg-background border border-border/40 text-accent px-1.5 py-0.2 rounded font-bold animate-pulse">Guide</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('collab')}
@@ -330,6 +348,9 @@ export default function Dashboard() {
               >
                 <Activity className="w-4 h-4" />
                 <span>Cognitive Anchor</span>
+                {tourStep !== null && steps[tourStep] && steps[tourStep].tab === 'cognitive' && (
+                  <span className="ml-auto text-[9px] bg-background border border-border/40 text-accent px-1.5 py-0.2 rounded font-bold animate-pulse">Guide</span>
+                )}
               </button>
               {isExecutor && (
                 <button
@@ -357,6 +378,9 @@ export default function Dashboard() {
               >
                 <Bot className="w-4 h-4" />
                 <span>Ask & Chat</span>
+                {tourStep !== null && steps[tourStep] && steps[tourStep].tab === 'companion' && (
+                  <span className="ml-auto text-[9px] bg-background border border-border/40 text-accent px-1.5 py-0.2 rounded font-bold animate-pulse">Guide</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('archive')}
@@ -368,6 +392,9 @@ export default function Dashboard() {
               >
                 <BookOpen className="w-4 h-4" />
                 <span>Preserved Archive</span>
+                {tourStep !== null && steps[tourStep] && steps[tourStep].tab === 'archive' && (
+                  <span className="ml-auto text-[9px] bg-background border border-border/40 text-accent px-1.5 py-0.2 rounded font-bold animate-pulse">Guide</span>
+                )}
               </button>
               <button
                 onClick={() => setActiveTab('collab')}
@@ -390,6 +417,9 @@ export default function Dashboard() {
               >
                 <Activity className="w-4 h-4" />
                 <span>Cognitive Anchor</span>
+                {tourStep !== null && steps[tourStep] && steps[tourStep].tab === 'cognitive' && (
+                  <span className="ml-auto text-[9px] bg-background border border-border/40 text-accent px-1.5 py-0.2 rounded font-bold animate-pulse">Guide</span>
+                )}
               </button>
               {isExecutor && (
                 <button
@@ -471,6 +501,11 @@ export default function Dashboard() {
               <p className="text-xs text-secondary leading-relaxed">
                 {steps[tourStep].desc}
               </p>
+              {steps[tourStep].actionTip && (
+                <div className="mt-2.5 p-2.5 bg-accent/10 border border-accent/20 rounded-lg text-[10px] text-accent font-semibold leading-normal font-sans shadow-inner">
+                  {steps[tourStep].actionTip}
+                </div>
+              )}
             </div>
 
             <div className="flex justify-between items-center pt-2">
