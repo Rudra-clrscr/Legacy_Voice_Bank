@@ -1,0 +1,16 @@
+{
+  "short_name": "Pratidhvani",
+  "name": "Pratidhvani: Legacy Voice Sanctuary",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#FDF5D7",
+  "background_color": "#FDF5D7"
+}

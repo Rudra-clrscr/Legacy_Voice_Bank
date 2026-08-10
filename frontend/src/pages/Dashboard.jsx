@@ -127,6 +127,25 @@ export default function Dashboard() {
   const isExecutor = executorPatients.length > 0;
 
   const [tourStep, setTourStep] = useState(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
 
   const narratorSteps = [
     {
@@ -435,6 +454,15 @@ export default function Dashboard() {
                 </button>
               )}
             </>
+          )}
+          {deferredPrompt && (
+            <button
+              onClick={handleInstallApp}
+              className="mt-6 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-border rounded-lg text-xs uppercase tracking-widest font-bold bg-[#FDF5D7] text-primary hover:bg-[#F8EAB7] transition-all shadow-[2px_2px_0px_#2A160D]"
+            >
+              <Download className="w-4 h-4 text-primary" />
+              <span>Install Web App</span>
+            </button>
           )}
         </aside>
 
