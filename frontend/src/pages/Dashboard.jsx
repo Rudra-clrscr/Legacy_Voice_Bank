@@ -132,25 +132,37 @@ export default function Dashboard() {
     {
       tab: 'capture',
       title: '🎙 Recording Studio',
-      desc: 'Speak naturally at your own pace. Record warm comforting voice messages, or tell life stories to build your legacy.',
+      desc: 'This is where you preserve your memories. Try clicking any of the theme cards below (like "Life Stories" or "Values & Beliefs") to see structured prompts designed to guide your reflection.',
+      selector: 'capture'
+    },
+    {
+      tab: 'capture',
+      title: '🎙 Guided Prompt Engine',
+      desc: 'Click through prompts with the "Next Prompt" button in the recording panel. Take a slow breath, review your thoughts, and click the microphone to speak naturally.',
       selector: 'capture'
     },
     {
       tab: 'vault',
-      title: '🔒 The Vault',
-      desc: 'View all recordings. Here you can check your Vocal Health and download a self-contained offline Time Capsule for your family.',
+      title: '🔒 The Secure Vault',
+      desc: 'Stores and organizes all your recordings. Here, you can review speech transcripts, configure specific recipient access, or securely delete clips.',
+      selector: 'vault'
+    },
+    {
+      tab: 'vault',
+      title: '📈 Vocal Health & Capsule Backups',
+      desc: 'Click "Show Vocal Health Check" on any clip to inspect your pitch, volume, and silence stability. Click the "Export Offline Capsule" button to compile all audios into a standalone offline file.',
       selector: 'vault'
     },
     {
       tab: 'cognitive',
-      title: '🧠 Cognitive Anchor',
-      desc: 'Specialized Digital Reminiscence Therapy (DRT) with large orientation play buttons and breathing loops for dementia care.',
+      title: '🧠 Cognitive Anchor (DRT)',
+      desc: 'Digital Reminiscence Therapy support. Play chronological memories to guide recollection, or test the "Anchor Me" button to see the comforting grounding message and guided breathing circle.',
       selector: 'cognitive'
     },
     {
       tab: 'companion',
-      title: '🤖 Voice Companion',
-      desc: 'Ask your AI companion questions to guide your memories, or search through your voice recordings interactively.',
+      title: '🤖 AI Voice Companion',
+      desc: 'Your private memory partner. Ask the chatbot questions about your records or use it to help spark new topics and memories to record.',
       selector: 'companion'
     }
   ];
@@ -159,19 +171,19 @@ export default function Dashboard() {
     {
       tab: 'companion',
       title: '🤖 Ask & Chat',
-      desc: 'Ask questions to search and listen to direct clips of your narrator\'s real voice.',
+      desc: 'Your semantic voice search box. Ask questions about the narrator\'s life stories and the chatbot will search and play back relevant clips in their real voice.',
       selector: 'companion'
     },
     {
       tab: 'archive',
       title: '📚 Preserved Archive',
-      desc: 'Listen to all voice clips shared with you. View and print Trust Certificates to verify voice authentications.',
+      desc: 'View all voice clips shared with you. Listen to recordings, read transcripts, and click "View Certificate" to view or print the cryptographic Trust Certificate.',
       selector: 'archive'
     },
     {
       tab: 'cognitive',
-      title: '🧠 Cognitive Anchor',
-      desc: 'Use the orientation play button and guided breathing loop to calm and orient your loved one during times of confusion.',
+      title: '🧠 Cognitive Anchor (DRT)',
+      desc: 'Dementia orientation view. If your loved one feels disoriented or experiences sundowning, press "Anchor Me" to play their familiar comforting voice alongside a calming breathing ring.',
       selector: 'cognitive'
     }
   ];
@@ -426,7 +438,7 @@ export default function Dashboard() {
         <div className="fixed inset-0 z-50 pointer-events-none font-sans">
           <div className="absolute inset-0 bg-background/20 backdrop-blur-[1px] pointer-events-auto" onClick={endTour} />
           
-          <div className="absolute bottom-6 right-6 md:bottom-12 md:right-12 bg-surface border-2 border-border p-6 rounded-2xl shadow-[6px_6px_0px_#2A160D] max-w-sm w-full pointer-events-auto space-y-4 animate-bounce-short">
+          <div className="absolute bottom-6 right-6 md:bottom-12 md:right-12 bg-surface border-2 border-border p-6 rounded-2xl shadow-[6px_6px_0px_#2A160D] max-w-sm w-full pointer-events-auto space-y-4">
             <div className="flex justify-between items-center">
               <span className="text-[10px] uppercase font-bold text-accent tracking-widest">
                 Sanctuary Tour: Step {tourStep + 1} of {steps.length}
@@ -437,6 +449,18 @@ export default function Dashboard() {
               >
                 Skip Tour
               </button>
+            </div>
+
+            {/* Carousel Step Indicator Dots */}
+            <div className="flex gap-1.5 justify-center py-1">
+              {steps.map((_, i) => (
+                <div 
+                  key={i} 
+                  className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                    i === tourStep ? 'bg-accent w-4' : 'bg-border/40'
+                  }`}
+                />
+              ))}
             </div>
 
             <div className="space-y-1.5">
