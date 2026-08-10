@@ -440,8 +440,9 @@ export default function Dashboard() {
           
           <div className="absolute bottom-6 right-6 md:bottom-12 md:right-12 bg-surface border-2 border-border p-6 rounded-2xl shadow-[6px_6px_0px_#2A160D] max-w-sm w-full pointer-events-auto space-y-4">
             <div className="flex justify-between items-center">
-              <span className="text-[10px] uppercase font-bold text-accent tracking-widest">
-                Sanctuary Tour: Step {tourStep + 1} of {steps.length}
+              <span className="text-[10px] uppercase font-bold text-accent tracking-widest flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-accent animate-spin" style={{ animationDuration: '3s' }} />
+                <span>Sanctuary Tour: Step {tourStep + 1} of {steps.length}</span>
               </span>
               <button 
                 onClick={endTour}
@@ -3771,19 +3772,34 @@ function CognitiveAnchorView({ getHeaders, role }) {
           </div>
 
           <div className="flex flex-col items-center justify-center py-6">
-            <button
-              onClick={handlePlayAnchor}
-              className={`w-36 h-36 rounded-full border-4 border-border shadow-[4px_4px_0px_#2A160D] flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.97] ${
-                playing 
-                  ? 'bg-accent text-background font-semibold shadow animate-pulse' 
-                  : 'bg-[#FDF5D7] text-primary hover:bg-[#F8EAB7]'
-              }`}
-            >
-              <Heart className={`w-8 h-8 ${playing ? 'fill-current animate-ping' : ''}`} />
-              <span className="text-xs font-bold uppercase tracking-wider">
-                {playing ? 'Calming...' : 'Anchor Me'}
-              </span>
-            </button>
+            <div className="relative flex items-center justify-center w-48 h-48">
+              {/* Pulsing and breathing guide rings */}
+              {playing && (
+                <>
+                  <div className="absolute inset-0 rounded-full bg-accent/20 animate-ping border border-accent/30" />
+                  <div 
+                    className="absolute rounded-full bg-accent/5 border border-dashed border-accent/20 transition-all duration-[4000ms] ease-in-out"
+                    style={{
+                      width: breathText === "Inhale..." ? "180px" : "140px",
+                      height: breathText === "Inhale..." ? "180px" : "140px",
+                    }}
+                  />
+                </>
+              )}
+              <button
+                onClick={handlePlayAnchor}
+                className={`relative z-10 w-36 h-36 rounded-full border-4 border-border shadow-[4px_4px_0px_#2A160D] flex flex-col items-center justify-center gap-1.5 transition-all active:scale-[0.97] ${
+                  playing 
+                    ? 'bg-accent text-background font-semibold shadow' 
+                    : 'bg-[#FDF5D7] text-primary hover:bg-[#F8EAB7]'
+                }`}
+              >
+                <Heart className={`w-8 h-8 ${playing ? 'fill-current animate-pulse' : ''}`} />
+                <span className="text-xs font-bold uppercase tracking-wider">
+                  {playing ? 'Calming...' : 'Anchor Me'}
+                </span>
+              </button>
+            </div>
             
             {playing && (
               <p className="mt-4 text-xs font-bold text-accent uppercase tracking-widest animate-bounce">
