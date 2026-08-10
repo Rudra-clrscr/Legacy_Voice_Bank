@@ -1273,21 +1273,23 @@ function VocalBiomarkerChart({ clips }) {
     };
   };
 
-  const data = [...clips]
-    .map(c => {
-      const vm = getVocalMetrics(c);
-      return {
-        id: c.id,
-        title: c.title,
-        date: new Date(c.created_at).toLocaleDateString(),
-        jitter: vm.jitter_percent,
-        shimmer: vm.shimmer_percent,
-        pitch: vm.pitch_hz,
-        snr: vm.snr_db,
-        score: Math.round(vm.clarity_score)
-      };
-    })
-    .reverse();
+  const data = Array.isArray(clips)
+    ? [...clips]
+        .map(c => {
+          const vm = getVocalMetrics(c);
+          return {
+            id: c.id,
+            title: c.title,
+            date: new Date(c.created_at).toLocaleDateString(),
+            jitter: vm.jitter_percent,
+            shimmer: vm.shimmer_percent,
+            pitch: vm.pitch_hz,
+            snr: vm.snr_db,
+            score: Math.round(vm.clarity_score)
+          };
+        })
+        .reverse()
+    : [];
 
   if (data.length < 2) {
     return (
@@ -1407,6 +1409,18 @@ function VaultView({ getHeaders, profile }) {
   const [editingClip, setEditingClip] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [expandedMetrics, setExpandedMetrics] = useState({});
+  const readAloudAudioRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (readAloudAudioRef.current) {
+        readAloudAudioRef.current.pause();
+      }
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const toggleMetrics = (clipId) => {
     setExpandedMetrics(prev => ({ ...prev, [clipId]: !prev[clipId] }));
@@ -1752,6 +1766,7 @@ function VaultView({ getHeaders, profile }) {
       });
       const blobUrl = URL.createObjectURL(res.data);
       const audio = new Audio(blobUrl);
+      readAloudAudioRef.current = audio;
       audio.play();
     } catch (err) {
       console.warn("Server TTS failed, falling back to Browser SpeechSynthesis.", err);
@@ -2631,6 +2646,18 @@ function ArchiveView({ getHeaders }) {
   const [showCertificateModal, setShowCertificateModal] = useState(false);
   const [selectedNarrator, setSelectedNarrator] = useState(null);
   const [expandedMetrics, setExpandedMetrics] = useState({});
+  const readAloudAudioRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (readAloudAudioRef.current) {
+        readAloudAudioRef.current.pause();
+      }
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   const toggleMetrics = (clipId) => {
     setExpandedMetrics(prev => ({ ...prev, [clipId]: !prev[clipId] }));
@@ -2664,6 +2691,7 @@ function ArchiveView({ getHeaders }) {
       });
       const blobUrl = URL.createObjectURL(res.data);
       const audio = new Audio(blobUrl);
+      readAloudAudioRef.current = audio;
       audio.play();
     } catch (err) {
       console.warn("Server TTS failed, falling back to Browser SpeechSynthesis.", err);
@@ -3038,6 +3066,9 @@ function TalkingAssistantChat({ getHeaders, role }) {
       stopVoiceAudio();
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
+      }
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
       }
     };
   }, []);
