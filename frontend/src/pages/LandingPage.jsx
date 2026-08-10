@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Mic, Lock, Calendar, MessageSquare, ArrowRight, Heart, Shield, ChevronDown, Volume2, VolumeX, X, Activity, Download } from 'lucide-react';
-import { toast } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 
 export default function LandingPage() {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -25,6 +25,7 @@ export default function LandingPage() {
   }, []);
 
   const handleInstallApp = async () => {
+    console.log("PWA Installation Button Clicked! deferredPrompt available:", !!deferredPrompt);
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
