@@ -1,12 +1,31 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Mic, Lock, Calendar, MessageSquare, ArrowRight, Heart, Shield, ChevronDown, Volume2, VolumeX, X, Activity } from 'lucide-react';
+import { Mic, Lock, Calendar, MessageSquare, ArrowRight, Heart, Shield, ChevronDown, Volume2, VolumeX, X, Activity, Download } from 'lucide-react';
 
 export default function LandingPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const audioRef = useRef(null);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
 
   useEffect(() => {
     // Show tooltip on first entry if they haven't muted/played yet
@@ -197,6 +216,15 @@ export default function LandingPage() {
             <Link to="/verify" className="text-sm font-medium text-secondary hover:text-primary transition-colors hidden sm:block mr-2">
               Verify Voice
             </Link>
+            {deferredPrompt && (
+              <button
+                onClick={handleInstallApp}
+                className="text-xs font-semibold bg-[#FDF5D7] border border-border text-primary px-3.5 py-1.5 rounded-lg hover:bg-[#F8EAB7] transition-all duration-200 hidden sm:flex items-center gap-1.5 active:scale-[0.97] mr-2 shadow-sm font-sans"
+              >
+                <Download className="w-3.5 h-3.5 text-primary" />
+                <span>Download App</span>
+              </button>
+            )}
             <Link to="/login" className="text-sm font-medium text-secondary hover:text-primary transition-colors hidden sm:block">
               Sign In
             </Link>
@@ -276,6 +304,15 @@ export default function LandingPage() {
                 Start Recording
                 <ArrowRight className="w-4 h-4" />
               </Link>
+              {deferredPrompt && (
+                <button
+                  onClick={handleInstallApp}
+                  className="flex items-center gap-2.5 bg-[#FDF5D7] text-primary px-8 py-4 border-2 border-border font-semibold text-sm hover:bg-[#F8EAB7] transition-all duration-200 active:scale-[0.97] shadow-[4px_4px_0px_0px_#2A160D]"
+                >
+                  <Download className="w-4 h-4 text-primary" />
+                  Install Web App
+                </button>
+              )}
               <a
                 href="#how-it-works"
                 className="flex items-center gap-2 px-8 py-4 border-2 border-border font-medium text-sm text-primary hover:bg-surface transition-all duration-200 active:scale-[0.97]"
