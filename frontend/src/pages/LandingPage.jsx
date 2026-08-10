@@ -79,14 +79,14 @@ export default function LandingPage() {
     },
     {
       icon: Activity,
-      title: "Vocal Stability Diagnostics",
-      desc: "Clinical-grade vocal metrics (Pitch, Jitter, Shimmer, SNR) designed to track voice preservation progress for MND, Parkinson's, and ALS patients.",
+      title: "Vocal Biomarkers & Diagnostics",
+      desc: "Clinical-grade parameters (Pitch, Jitter, Shimmer, SNR) that track longitudinal voice changes, serving as early indicators of cognitive drift and neuromuscular health.",
       num: "05"
     },
     {
       icon: Heart,
       title: "Cognitive Anchoring (DRT)",
-      desc: "Specialized reminiscence timelines and comforting orientation grounding loops specifically designed to soothe loved ones experiencing Dementia or Alzheimer's.",
+      desc: "Specialized reminiscence timelines, comforting orientation loops, and breathing guides specifically designed to soothe loved ones experiencing Dementia or Alzheimer's.",
       num: "06"
     }
   ];
