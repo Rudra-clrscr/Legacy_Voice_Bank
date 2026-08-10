@@ -132,6 +132,10 @@ async def process_unified_voice_query(
             grants = supabase_client.table("access_grants").select("clip_id").in_("recipient_id", recipient_ids).execute()
             granted_ids = {g["clip_id"] for g in grants.data} if grants.data else set()
             
+            # Fetch profiles for all patient_ids to prevent cross-narrator clone mismatch
+            narrators_resp = supabase_client.table("profiles").select("*").in_("id", patient_ids).execute()
+            narrators_dict = {n["id"]: n for n in narrators_resp.data} if narrators_resp.data else {}
+
             import datetime
             now = datetime.datetime.now(datetime.timezone.utc)
             unlocked_clips = []
@@ -147,14 +151,12 @@ async def process_unified_voice_query(
                     except Exception:
                         pass
                 elif clip.get("release_rule") == "event":
-                    unlocked = True
+                    narrator_p = narrators_dict.get(clip.get("patient_id"), {})
+                    if narrator_p.get("executor_activated", False):
+                        unlocked = True
                     
                 if unlocked and (clip.get("visibility") in ["shared", "family_archive"] or clip.get("id") in granted_ids):
                     unlocked_clips.append(clip)
-            
-            # Fetch profiles for all patient_ids to prevent cross-narrator clone mismatch
-            narrators_resp = supabase_client.table("profiles").select("*").in_("id", patient_ids).execute()
-            narrators_dict = {n["id"]: n for n in narrators_resp.data} if narrators_resp.data else {}
             
             first_id = patient_ids[0] if patient_ids else None
             narrator = narrators_dict.get(first_id)

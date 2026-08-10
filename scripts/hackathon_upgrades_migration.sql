@@ -44,3 +44,7 @@ ON public.voice_authenticity_registry FOR INSERT WITH CHECK (
 
 -- 6. Add Index for rapid hash lookup
 CREATE INDEX IF NOT EXISTS idx_voice_hash ON public.voice_authenticity_registry(audio_hash);
+
+-- 7. Add Vocal Metrics Column to public.clips for Vocal Health Diagnostics
+ALTER TABLE public.clips
+ADD COLUMN IF NOT EXISTS vocal_metrics JSONB;

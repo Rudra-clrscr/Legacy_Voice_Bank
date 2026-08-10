@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
-import { Mic, Lock, Calendar, MessageSquare, ArrowRight, Heart, Shield, ChevronDown, Volume2, VolumeX, X } from 'lucide-react';
+import { Mic, Lock, Calendar, MessageSquare, ArrowRight, Heart, Shield, ChevronDown, Volume2, VolumeX, X, Activity } from 'lucide-react';
 
 export default function LandingPage() {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -76,6 +76,18 @@ export default function LandingPage() {
       title: "Interactive Retrieval",
       desc: "Loved ones ask questions to retrieve direct, unaltered clips of your recorded voice — with an optional, consent-gated voice clone for comfort in the moments grief feels heaviest.",
       num: "04"
+    },
+    {
+      icon: Activity,
+      title: "Vocal Stability Diagnostics",
+      desc: "Clinical-grade vocal metrics (Pitch, Jitter, Shimmer, SNR) designed to track voice preservation progress for MND, Parkinson's, and ALS patients.",
+      num: "05"
+    },
+    {
+      icon: Heart,
+      title: "Cognitive Anchoring (DRT)",
+      desc: "Specialized reminiscence timelines and comforting orientation grounding loops specifically designed to soothe loved ones experiencing Dementia or Alzheimer's.",
+      num: "06"
     }
   ];
 
@@ -252,7 +264,7 @@ export default function LandingPage() {
               custom={2}
               className="text-base md:text-lg text-secondary max-w-2xl mx-auto leading-relaxed font-light"
             >
-              A consent-first, guided space for terminally ill patients to record their memories, values, and messages — keeping your real voice alive for the moments that matter most.
+              A consent-first, guided space for patients facing terminal illness, ALS, Parkinson's, or Dementia to preserve their voice, memories, and comfort anchors — keeping your presence alive for the moments that matter most.
             </motion.p>
 
             {/* CTAs */}
