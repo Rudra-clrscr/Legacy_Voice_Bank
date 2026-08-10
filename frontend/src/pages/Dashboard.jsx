@@ -3869,6 +3869,7 @@ function SignaturePad({ onSave, onCancel }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function CognitiveAnchorView({ getHeaders, role }) {
   const [clips, setClips] = useState([]);
+  const [collabItems, setCollabItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [anchorClip, setAnchorClip] = useState(null);
   const [playing, setPlaying] = useState(false);
@@ -3879,14 +3880,19 @@ function CognitiveAnchorView({ getHeaders, role }) {
   const activeAudioRef = useRef(null);
 
   useEffect(() => {
-    axios.get(`${API}/api/clips`, getHeaders())
-      .then(res => {
-        setClips(res.data);
-        const found = res.data.find(c => 
+    Promise.all([
+      axios.get(`${API}/api/clips`, getHeaders()),
+      axios.get(`${API}/api/collab`, getHeaders()).catch(() => ({ data: [] }))
+    ])
+      .then(([clipsRes, collabRes]) => {
+        setClips(clipsRes.data);
+        setCollabItems(collabRes.data || []);
+        
+        const found = clipsRes.data.find(c => 
           c.title.toLowerCase().includes('grounding') || 
           c.title.toLowerCase().includes('anchor') || 
           c.title.toLowerCase().includes('comfort')
-        ) || res.data[0];
+        ) || clipsRes.data[0];
         setAnchorClip(found);
       })
       .catch(() => toast.error('Failed to load memory lane.'))
@@ -4053,42 +4059,81 @@ function CognitiveAnchorView({ getHeaders, role }) {
             <div className="h-64 flex items-center justify-center text-secondary">
               <RefreshCw className="w-5 h-5 animate-spin mr-2" /> Building Memory Lane...
             </div>
-          ) : clips.length === 0 ? (
+          ) : (clips.length === 0 && collabItems.length === 0) ? (
             <div className="border border-dashed border-border rounded-xl p-12 text-center text-secondary text-xs">
-              Record life memories in the studio to populate this timeline.
+              Record voice memories or post family photos on the wall to build the sensory reminiscence timeline.
             </div>
           ) : (
-            <div className="relative pl-6 border-l-2 border-border space-y-6 max-h-[360px] overflow-y-auto pr-2">
-              {clips.map((clip, index) => (
-                <div key={clip.id} className="relative space-y-2">
+            <div className="relative pl-6 border-l-2 border-border space-y-6 max-h-[380px] overflow-y-auto pr-2">
+              {[
+                ...clips.map(c => ({
+                  id: c.id,
+                  type: 'voice',
+                  title: c.title,
+                  content: c.transcript,
+                  created_at: c.created_at,
+                  audio_url: c.audio_url
+                })),
+                ...collabItems.map(item => ({
+                  id: item.id,
+                  type: item.type, // 'photo', 'note', 'memory'
+                  title: item.type === 'photo' ? '📷 Photo Memory' : '✍️ Family Reflection',
+                  content: item.content,
+                  created_at: item.created_at,
+                  media_url: item.media_url,
+                  author_name: item.author_name
+                }))
+              ]
+              .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+              .map((item, index) => (
+                <div key={item.id} className="relative space-y-2">
                   <span className="absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border-2 border-border bg-surface flex items-center justify-center text-[8px] font-bold text-primary shadow-[1px_1px_0px_#2A160D]">
                     {index + 1}
                   </span>
 
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <h4 className="font-serif font-bold text-sm text-primary">{clip.title}</h4>
-                      <p className="text-[9px] text-secondary">Recorded on {new Date(clip.created_at).toLocaleDateString()}</p>
+                  <div className="bg-background/40 border border-border/60 rounded-xl p-4 space-y-3 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-serif font-bold text-sm text-primary">{item.title}</h4>
+                          <span className={`text-[8px] uppercase tracking-wider px-1.5 py-0.2 rounded font-semibold ${
+                            item.type === 'voice' ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-secondary/20 text-secondary border border-secondary/30'
+                          }`}>
+                            {item.type}
+                          </span>
+                        </div>
+                        <p className="text-[9px] text-secondary">
+                          {item.type === 'voice' ? 'Recorded' : `Shared by ${item.author_name || 'Family'}`} on {new Date(item.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+
+                      {item.type === 'voice' && item.audio_url && (
+                        <button
+                          onClick={() => handlePlayClip(item)}
+                          className={`p-1.5 bg-background border border-border rounded-lg hover:border-accent hover:text-accent transition-all text-secondary shrink-0 shadow-[1px_1px_0px_#2A160D] ${
+                            playingClipId === item.id ? 'text-accent border-accent' : ''
+                          }`}
+                          title={playingClipId === item.id ? "Pause Memory" : "Play Memory"}
+                        >
+                          {playingClipId === item.id ? (
+                            <Pause className="w-3.5 h-3.5" />
+                          ) : (
+                            <Play className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
                     </div>
-                    {clip.audio_url && (
-                      <button
-                        onClick={() => handlePlayClip(clip)}
-                        className={`p-1.5 bg-background border border-border rounded-lg hover:border-accent hover:text-accent transition-all text-secondary shrink-0 shadow-[1px_1px_0px_#2A160D] ${
-                          playingClipId === clip.id ? 'text-accent border-accent' : ''
-                        }`}
-                        title={playingClipId === clip.id ? "Pause Memory" : "Play Memory"}
-                      >
-                        {playingClipId === clip.id ? (
-                          <Pause className="w-3.5 h-3.5" />
-                        ) : (
-                          <Play className="w-3.5 h-3.5" />
-                        )}
-                      </button>
+
+                    {item.media_url && (
+                      <div className="rounded-lg overflow-hidden border border-border max-h-36 max-w-sm bg-surface/50">
+                        <img src={item.media_url} alt={item.title} className="w-full h-full object-cover" />
+                      </div>
                     )}
+
+                    <p className="text-[11px] text-secondary leading-relaxed font-serif italic">
+                      "{item.content}"
+                    </p>
                   </div>
-                  <p className="text-[11px] text-secondary italic bg-background/30 p-2.5 border border-border/40 rounded leading-relaxed font-serif">
-                    "{clip.transcript}"
-                  </p>
                 </div>
               ))}
             </div>
