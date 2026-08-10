@@ -126,6 +126,83 @@ export default function Dashboard() {
 
   const isExecutor = executorPatients.length > 0;
 
+  const [tourStep, setTourStep] = useState(null);
+
+  const narratorSteps = [
+    {
+      tab: 'capture',
+      title: '🎙 Recording Studio',
+      desc: 'Speak naturally at your own pace. Record warm comforting voice messages, or tell life stories to build your legacy.',
+      selector: 'capture'
+    },
+    {
+      tab: 'vault',
+      title: '🔒 The Vault',
+      desc: 'View all recordings. Here you can check your Vocal Health and download a self-contained offline Time Capsule for your family.',
+      selector: 'vault'
+    },
+    {
+      tab: 'cognitive',
+      title: '🧠 Cognitive Anchor',
+      desc: 'Specialized Digital Reminiscence Therapy (DRT) with large orientation play buttons and breathing loops for dementia care.',
+      selector: 'cognitive'
+    },
+    {
+      tab: 'companion',
+      title: '🤖 Voice Companion',
+      desc: 'Ask your AI companion questions to guide your memories, or search through your voice recordings interactively.',
+      selector: 'companion'
+    }
+  ];
+
+  const recipientSteps = [
+    {
+      tab: 'companion',
+      title: '🤖 Ask & Chat',
+      desc: 'Ask questions to search and listen to direct clips of your narrator\'s real voice.',
+      selector: 'companion'
+    },
+    {
+      tab: 'archive',
+      title: '📚 Preserved Archive',
+      desc: 'Listen to all voice clips shared with you. View and print Trust Certificates to verify voice authentications.',
+      selector: 'archive'
+    },
+    {
+      tab: 'cognitive',
+      title: '🧠 Cognitive Anchor',
+      desc: 'Use the orientation play button and guided breathing loop to calm and orient your loved one during times of confusion.',
+      selector: 'cognitive'
+    }
+  ];
+
+  const steps = profile && profile.role === 'narrator' ? narratorSteps : recipientSteps;
+
+  useEffect(() => {
+    const completed = localStorage.getItem('hasCompletedTour');
+    if (!completed && profile && profile.name !== 'User') {
+      setTourStep(0);
+    }
+  }, [profile]);
+
+  useEffect(() => {
+    if (tourStep !== null && steps[tourStep]) {
+      setActiveTab(steps[tourStep].tab);
+    }
+  }, [tourStep]);
+
+  const endTour = () => {
+    localStorage.setItem('hasCompletedTour', 'true');
+    setTourStep(null);
+  };
+
+  const getHighlightClass = (tabName) => {
+    if (tourStep !== null && steps[tourStep] && steps[tourStep].tab === tabName) {
+      return 'ring-4 ring-accent ring-offset-2 ring-offset-background animate-pulse';
+    }
+    return '';
+  };
+
   return (
     <div className="min-h-screen bg-background text-primary flex flex-col font-sans">
       {/* Header */}
@@ -145,6 +222,13 @@ export default function Dashboard() {
             title={`Switch to ${profile.role === 'narrator' ? 'recipient' : 'narrator'} mode`}
           >
             {switchingRole ? 'Switching...' : `Switch to ${profile.role === 'narrator' ? 'Recipient' : 'Narrator'}`}
+          </button>
+          <button
+            onClick={() => setTourStep(0)}
+            className="text-[9px] bg-secondary/15 hover:bg-secondary/25 border border-secondary/30 text-secondary px-2.5 py-0.5 rounded uppercase tracking-wider font-semibold ml-1.5 transition-all"
+            title="Restart Onboarding Tour"
+          >
+            Help Tour
           </button>
         </div>
         <div className="flex items-center space-x-4">
@@ -175,7 +259,7 @@ export default function Dashboard() {
                   activeTab === 'capture'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('capture')}`}
               >
                 <Mic className="w-4 h-4" />
                 <span>Recording Studio</span>
@@ -186,7 +270,7 @@ export default function Dashboard() {
                   activeTab === 'vault'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('vault')}`}
               >
                 <Lock className="w-4 h-4" />
                 <span>The Vault</span>
@@ -197,7 +281,7 @@ export default function Dashboard() {
                   activeTab === 'recipients'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('recipients')}`}
               >
                 <Users className="w-4 h-4" />
                 <span>Recipient Directory</span>
@@ -208,7 +292,7 @@ export default function Dashboard() {
                   activeTab === 'companion'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('companion')}`}
               >
                 <Bot className="w-4 h-4" />
                 <span>Companion</span>
@@ -219,7 +303,7 @@ export default function Dashboard() {
                   activeTab === 'collab'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('collab')}`}
               >
                 <MessageSquare className="w-4 h-4" />
                 <span>Collaboration Wall</span>
@@ -230,7 +314,7 @@ export default function Dashboard() {
                   activeTab === 'cognitive'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('cognitive')}`}
               >
                 <Activity className="w-4 h-4" />
                 <span>Cognitive Anchor</span>
@@ -257,7 +341,7 @@ export default function Dashboard() {
                   activeTab === 'companion'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('companion')}`}
               >
                 <Bot className="w-4 h-4" />
                 <span>Ask & Chat</span>
@@ -268,7 +352,7 @@ export default function Dashboard() {
                   activeTab === 'archive'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('archive')}`}
               >
                 <BookOpen className="w-4 h-4" />
                 <span>Preserved Archive</span>
@@ -279,7 +363,7 @@ export default function Dashboard() {
                   activeTab === 'collab'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('collab')}`}
               >
                 <MessageSquare className="w-4 h-4" />
                 <span>Collaboration Wall</span>
@@ -290,7 +374,7 @@ export default function Dashboard() {
                   activeTab === 'cognitive'
                     ? 'bg-accent text-background font-semibold shadow'
                     : 'bg-surface/40 hover:bg-surface text-secondary hover:text-primary border border-border/40'
-                }`}
+                } ${getHighlightClass('cognitive')}`}
               >
                 <Activity className="w-4 h-4" />
                 <span>Cognitive Anchor</span>
@@ -336,6 +420,59 @@ export default function Dashboard() {
         </main>
 
       </div>
+
+      {/* Interactive Tour Onboarding Modal Overlay */}
+      {tourStep !== null && steps[tourStep] && (
+        <div className="fixed inset-0 z-50 pointer-events-none font-sans">
+          <div className="absolute inset-0 bg-background/20 backdrop-blur-[1px] pointer-events-auto" onClick={endTour} />
+          
+          <div className="absolute bottom-6 right-6 md:bottom-12 md:right-12 bg-surface border-2 border-border p-6 rounded-2xl shadow-[6px_6px_0px_#2A160D] max-w-sm w-full pointer-events-auto space-y-4 animate-bounce-short">
+            <div className="flex justify-between items-center">
+              <span className="text-[10px] uppercase font-bold text-accent tracking-widest">
+                Sanctuary Tour: Step {tourStep + 1} of {steps.length}
+              </span>
+              <button 
+                onClick={endTour}
+                className="text-xs text-secondary hover:text-primary font-bold underline animate-pulse"
+              >
+                Skip Tour
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="font-serif font-bold text-base text-primary">
+                {steps[tourStep].title}
+              </h3>
+              <p className="text-xs text-secondary leading-relaxed">
+                {steps[tourStep].desc}
+              </p>
+            </div>
+
+            <div className="flex justify-between items-center pt-2">
+              <button
+                disabled={tourStep === 0}
+                onClick={() => setTourStep(prev => prev - 1)}
+                className="text-xs font-semibold border border-border px-3 py-1.5 rounded disabled:opacity-30 hover:bg-background/25 transition-all"
+              >
+                Back
+              </button>
+
+              <button
+                onClick={() => {
+                  if (tourStep === steps.length - 1) {
+                    endTour();
+                  } else {
+                    setTourStep(prev => prev + 1);
+                  }
+                }}
+                className="text-xs font-bold bg-accent text-background px-4 py-1.5 border border-border rounded shadow-[2px_2px_0px_#2A160D]"
+              >
+                {tourStep === steps.length - 1 ? 'Finish Tour' : 'Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
