@@ -1559,15 +1559,15 @@ function VaultView({ getHeaders, profile }) {
                         className="text-xs font-semibold text-secondary hover:text-primary flex items-center gap-1 transition-all"
                       >
                         <Activity className="w-3.5 h-3.5" />
-                        <span>{expandedMetrics[clip.id] ? 'Hide Vocal Diagnostics' : 'Show Vocal Diagnostics'}</span>
+                        <span>{expandedMetrics[clip.id] ? 'Hide Vocal Health Check' : 'Show Vocal Health Check'}</span>
                       </button>
 
                       {expandedMetrics[clip.id] && (
                         <div className="mt-3 p-4 bg-background/50 border border-border rounded-lg space-y-3 shadow-[2px_2px_0px_#2A160D]">
                           <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold text-primary uppercase tracking-wider">Clinical Vocal Stability Index</span>
+                            <span className="text-xs font-bold text-primary uppercase tracking-wider">Vocal Wellness Analysis</span>
                             <span className="text-xs font-bold bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-accent">
-                              Clarity: {metrics.clarity_score}%
+                              Clarity Score: {metrics.clarity_score}%
                             </span>
                           </div>
 
@@ -1578,32 +1578,33 @@ function VaultView({ getHeaders, profile }) {
                             />
                           </div>
 
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center font-sans">
                             <div className="bg-surface border border-border p-2 rounded">
-                              <div className="text-[10px] text-secondary uppercase font-semibold">Mean Pitch</div>
+                              <div className="text-[10px] text-secondary uppercase font-semibold">Voice Pitch (Tone)</div>
                               <div className="text-sm font-bold text-primary">{metrics.pitch_hz} Hz</div>
+                              <div className="text-[8px] text-secondary font-medium">How high or low the voice is</div>
                             </div>
                             <div className="bg-surface border border-border p-2 rounded">
-                              <div className="text-[10px] text-secondary uppercase font-semibold">Jitter (Freq Var)</div>
+                              <div className="text-[10px] text-secondary uppercase font-semibold">Steady Pitch (Jitter)</div>
                               <div className="text-sm font-bold text-primary">{metrics.jitter_percent}%</div>
-                              <div className="text-[8px] text-secondary font-medium">Normal: &lt;1.04%</div>
+                              <div className="text-[8px] text-secondary font-medium">Pitch stability (Normal: &lt;1.04%)</div>
                             </div>
                             <div className="bg-surface border border-border p-2 rounded">
-                              <div className="text-[10px] text-secondary uppercase font-semibold">Shimmer (Amp Var)</div>
+                              <div className="text-[10px] text-secondary uppercase font-semibold">Steady Volume (Shimmer)</div>
                               <div className="text-sm font-bold text-primary">{metrics.shimmer_percent}%</div>
-                              <div className="text-[8px] text-secondary font-medium">Normal: &lt;3.80%</div>
+                              <div className="text-[8px] text-secondary font-medium">Volume stability (Normal: &lt;3.80%)</div>
                             </div>
                             <div className="bg-surface border border-border p-2 rounded">
-                              <div className="text-[10px] text-secondary uppercase font-semibold">Signal-to-Noise</div>
+                              <div className="text-[10px] text-secondary uppercase font-semibold">Background Silence (SNR)</div>
                               <div className="text-sm font-bold text-primary">{metrics.snr_db} dB</div>
-                              <div className="text-[8px] text-secondary font-medium">Normal: &gt;20.0 dB</div>
+                              <div className="text-[8px] text-secondary font-medium">Silence vs Voice (Normal: &gt;20.0 dB)</div>
                             </div>
                           </div>
 
                           <p className="text-[10px] text-secondary italic">
                             {metrics.clarity_score > 90 
-                              ? "✓ Diagnostic summary: Voice is highly stable. Consistent frequency and amplitude markers indicate healthy phonation." 
-                              : "⚠ Diagnostic summary: Minor volume or frequency perturbations detected. Ensure stable posture and steady breath when recording."
+                              ? "✓ Health check summary: Your voice is highly stable. Consistent volume and pitch indicates healthy recording quality." 
+                              : "⚠ Health check summary: Minor volume or pitch changes detected. Try to sit upright and keep a steady breath while recording."
                             }
                           </p>
                         </div>
@@ -2442,15 +2443,15 @@ function ArchiveView({ getHeaders }) {
                       className="text-xs font-semibold text-secondary hover:text-primary flex items-center gap-1 transition-all"
                     >
                       <Activity className="w-3.5 h-3.5" />
-                      <span>{expandedMetrics[clip.id] ? 'Hide Vocal Diagnostics' : 'Show Vocal Diagnostics'}</span>
+                      <span>{expandedMetrics[clip.id] ? 'Hide Vocal Health Check' : 'Show Vocal Health Check'}</span>
                     </button>
 
                     {expandedMetrics[clip.id] && (
                       <div className="mt-3 p-4 bg-background/50 border border-border rounded-lg space-y-3 shadow-[2px_2px_0px_#2A160D]">
                         <div className="flex justify-between items-center">
-                          <span className="text-xs font-bold text-primary uppercase tracking-wider">Clinical Vocal Stability Index</span>
+                          <span className="text-xs font-bold text-primary uppercase tracking-wider">Vocal Wellness Analysis</span>
                           <span className="text-xs font-bold bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-accent">
-                            Clarity: {metrics.clarity_score}%
+                            Clarity Score: {metrics.clarity_score}%
                           </span>
                         </div>
 
@@ -2461,32 +2462,33 @@ function ArchiveView({ getHeaders }) {
                           />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 text-center">
+                        <div className="grid grid-cols-2 gap-3 text-center font-sans">
                           <div className="bg-surface border border-border p-2 rounded">
-                            <div className="text-[10px] text-secondary uppercase font-semibold">Mean Pitch</div>
+                            <div className="text-[10px] text-secondary uppercase font-semibold">Voice Pitch (Tone)</div>
                             <div className="text-xs font-bold text-primary">{metrics.pitch_hz} Hz</div>
+                            <div className="text-[8px] text-secondary font-medium">How high or low the voice is</div>
                           </div>
                           <div className="bg-surface border border-border p-2 rounded">
-                            <div className="text-[10px] text-secondary uppercase font-semibold">Jitter (Freq Var)</div>
+                            <div className="text-[10px] text-secondary uppercase font-semibold">Steady Pitch (Jitter)</div>
                             <div className="text-xs font-bold text-primary">{metrics.jitter_percent}%</div>
-                            <div className="text-[8px] text-secondary font-medium">Normal: &lt;1.04%</div>
+                            <div className="text-[8px] text-secondary font-medium">Pitch stability (Normal: &lt;1.04%)</div>
                           </div>
                           <div className="bg-surface border border-border p-2 rounded">
-                            <div className="text-[10px] text-secondary uppercase font-semibold">Shimmer (Amp Var)</div>
+                            <div className="text-[10px] text-secondary uppercase font-semibold">Steady Volume (Shimmer)</div>
                             <div className="text-xs font-bold text-primary">{metrics.shimmer_percent}%</div>
-                            <div className="text-[8px] text-secondary font-medium">Normal: &lt;3.80%</div>
+                            <div className="text-[8px] text-secondary font-medium">Volume stability (Normal: &lt;3.80%)</div>
                           </div>
                           <div className="bg-surface border border-border p-2 rounded">
-                            <div className="text-[10px] text-secondary uppercase font-semibold">Signal-to-Noise</div>
+                            <div className="text-[10px] text-secondary uppercase font-semibold">Background Silence (SNR)</div>
                             <div className="text-xs font-bold text-primary">{metrics.snr_db} dB</div>
-                            <div className="text-[8px] text-secondary font-medium">Normal: &gt;20.0 dB</div>
+                            <div className="text-[8px] text-secondary font-medium">Silence vs Voice (Normal: &gt;20.0 dB)</div>
                           </div>
                         </div>
 
                         <p className="text-[10px] text-secondary italic">
                           {metrics.clarity_score > 90 
-                            ? "✓ Diagnostic summary: Voice is highly stable. Consistent frequency and amplitude markers indicate healthy phonation." 
-                            : "⚠ Diagnostic summary: Minor volume or frequency perturbations detected. Ensure stable posture and steady breath when recording."
+                            ? "✓ Health check summary: Your voice is highly stable. Consistent volume and pitch indicates healthy recording quality." 
+                            : "⚠ Health check summary: Minor volume or pitch changes detected. Try to sit upright and keep a steady breath while recording."
                           }
                         </p>
                       </div>
