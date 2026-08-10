@@ -128,8 +128,13 @@ export default function Dashboard() {
 
   const [tourStep, setTourStep] = useState(null);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+      setIsStandalone(true);
+    }
+
     const handleBeforeInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -139,11 +144,21 @@ export default function Dashboard() {
   }, []);
 
   const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else {
+      const userAgent = navigator.userAgent.toLowerCase();
+      if (userAgent.includes('safari') && !userAgent.includes('chrome')) {
+        toast("To install on Safari: Tap the Share button 📤 then select 'Add to Home Screen' 📱", { duration: 6000, icon: '📱' });
+      } else if (userAgent.includes('firefox')) {
+        toast("Firefox does not support custom installation prompts. Please install from the browser menu or use Chrome/Edge.", { duration: 6000 });
+      } else {
+        toast("Chrome/Edge: Click the install icon 📥 at the right side of your browser's address bar.", { duration: 6000, icon: '📥' });
+      }
     }
   };
 
@@ -455,7 +470,7 @@ export default function Dashboard() {
               )}
             </>
           )}
-          {deferredPrompt && (
+          {!isStandalone && (
             <button
               onClick={handleInstallApp}
               className="mt-6 w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-border rounded-lg text-xs uppercase tracking-widest font-bold bg-[#FDF5D7] text-primary hover:bg-[#F8EAB7] transition-all shadow-[2px_2px_0px_#2A160D]"

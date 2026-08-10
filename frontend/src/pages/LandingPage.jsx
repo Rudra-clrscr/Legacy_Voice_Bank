@@ -2,14 +2,20 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Mic, Lock, Calendar, MessageSquare, ArrowRight, Heart, Shield, ChevronDown, Volume2, VolumeX, X, Activity, Download } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 export default function LandingPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const audioRef = useRef(null);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
+    if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+      setIsStandalone(true);
+    }
+
     const handleBeforeInstall = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -19,11 +25,21 @@ export default function LandingPage() {
   }, []);
 
   const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else {
+      const userAgent = navigator.userAgent.toLowerCase();
+      if (userAgent.includes('safari') && !userAgent.includes('chrome')) {
+        toast("To install on Safari: Tap the Share button 📤 then select 'Add to Home Screen' 📱", { duration: 6000, icon: '📱' });
+      } else if (userAgent.includes('firefox')) {
+        toast("Firefox does not support custom installation prompts. Please install from the browser menu or use Chrome/Edge.", { duration: 6000 });
+      } else {
+        toast("Chrome/Edge: Click the install icon 📥 at the right side of your browser's address bar.", { duration: 6000, icon: '📥' });
+      }
     }
   };
 
@@ -216,7 +232,7 @@ export default function LandingPage() {
             <Link to="/verify" className="text-sm font-medium text-secondary hover:text-primary transition-colors hidden sm:block mr-2">
               Verify Voice
             </Link>
-            {deferredPrompt && (
+            {!isStandalone && (
               <button
                 onClick={handleInstallApp}
                 className="text-xs font-semibold bg-[#FDF5D7] border border-border text-primary px-3.5 py-1.5 rounded-lg hover:bg-[#F8EAB7] transition-all duration-200 hidden sm:flex items-center gap-1.5 active:scale-[0.97] mr-2 shadow-sm font-sans"
@@ -304,7 +320,7 @@ export default function LandingPage() {
                 Start Recording
                 <ArrowRight className="w-4 h-4" />
               </Link>
-              {deferredPrompt && (
+              {!isStandalone && (
                 <button
                   onClick={handleInstallApp}
                   className="flex items-center gap-2.5 bg-[#FDF5D7] text-primary px-8 py-4 border-2 border-border font-semibold text-sm hover:bg-[#F8EAB7] transition-all duration-200 active:scale-[0.97] shadow-[4px_4px_0px_0px_#2A160D]"
