@@ -11,9 +11,14 @@ Full-stack app deployed on Vercel, with Supabase as the backing database/auth/st
 1. **Frontend (`/frontend`):**
    - **React 19** (Vite 8), **Tailwind CSS**, **Framer Motion** for animation.
    - **Recharts** for in-dashboard analytics, **react-router-dom** for routing, **react-hot-toast** for notifications, **PostHog** for analytics.
-   - Routes ([`App.jsx`](frontend/src/App.jsx)): `/` (`LandingPage.jsx`, marketing page with video background), `/login` (`Login.jsx`), `/dashboard` (`Dashboard.jsx`, main application surface for recording, browsing, and querying clips).
+   - Routes ([`App.jsx`](frontend/src/App.jsx)): `/` (`LandingPage.jsx`, marketing page with video background), `/login` (`Login.jsx`), `/dashboard` (`Dashboard.jsx`, main application surface for recording, browsing, and querying clips), `/verify` (`VerifyVoice.jsx`).
    - Auth/session handled by `hooks/useAuth.jsx` against Supabase; `lib/supabase.js` and `lib/posthog.js` hold respective client setups.
    - Live Speech Recognition: `AskThemView` and voice inputs integrate browser Web Speech API (`SpeechRecognition` / `webkitSpeechRecognition`) for instant real-time visual feedback and fast-track text queries.
+   - **Progressive Web App (PWA)**:
+     - Configured as a fully installable PWA via [`manifest.json`](frontend/public/manifest.json) and service worker [`sw.js`](frontend/public/sw.js) caching key shell assets (`/`, `/index.html`, `/favicon.svg`, `/manifest.json`).
+     - Service worker is registered in [`index.html`](frontend/index.html) on window load.
+     - Displays customizable "Download App" / "Install Web App" buttons across the landing page navbar, landing page hero, and the dashboard sidebar, visible by default when running in-browser (checked via `window.matchMedia('(display-mode: standalone)')`).
+     - Features browser-aware fallback instructions using `react-hot-toast` (e.g., iOS Safari "Add to Home Screen" instructions, Firefox or Chrome manual installation prompts) if direct installation prompts (`beforeinstallprompt`) are not supported.
 
 2. **Backend (`server.py`, mounted for Vercel via `api/index.py`):**
    - **FastAPI** app bridging the frontend to Supabase and AI services.
@@ -39,13 +44,10 @@ Full-stack app deployed on Vercel, with Supabase as the backing database/auth/st
 - **`search.py` (Hybrid Search Engine):**
   - `retrieve_relevant_clip`: Executes fast local **TF-IDF document retrieval** first (<1ms local computation, 0ms network latency). If a confident match (score >= 0.35) is found, returns instantly. Falls back to Gemini LLM semantic ranking only when local search is inconclusive.
 
-- **`elevenlabs_service.py`:**
-  - ElevenLabs Instant Voice Cloning (`create_voice_clone`, `delete_voice_clone`, `synthesize_with_clone`).
-  - Tuned with `optimize_streaming_latency=3` and persistent HTTP connection pooling for rapid audio synthesis turnaround.
-  - Output carries explicit `AI-Generated` ID3 metadata and SynthID watermarking.
-
-- **`rumik_service.py`:**
-  - Rumik Silk TTS API (`generate_tts_audio`) over pooled `requests.Session()` connections. Generic-voice text-to-speech used for prompt playback and fallback TTS.
+- **`rumik_service.py` (ElevenLabs TTS Wrapper):**
+  - Synthesizes text-to-speech audio using modern **ElevenLabs `eleven_flash_v2_5`** models under the hood.
+  - Maps legacy speakers (Mia, Sarah, Roger, Dev, Raghunath, Bella) to emotional, context-appropriate ElevenLabs voice IDs.
+  - Features text normalization in `clean_text_for_elevenlabs` that cleans dialogue tags (like `[happy]`) and translates conversational markers (like `<laugh>`, `<chuckle>`, `<sigh>`) into realistic phonetic vocalizations.
 
 - **`guardrails.py`:**
   - Safety layer for the Companion chatbot — `build_system_prompt` (role-aware: narrator vs recipient, profanity/impersonation safeguards) and `enforce_guardrails` (regex backstop).
@@ -58,6 +60,31 @@ Full-stack app deployed on Vercel, with Supabase as the backing database/auth/st
   - Falls back to generic Rumik TTS if voice clone is unconsented or disabled.
 - **Memory Clip Audio Playback**:
   - When a matched memory clip is found during search or chat, audio playback streams the **authentic, original recorded voice file** (`audio_url` / `original_audio_url`), preserving real voice recordings.
+
+---
+
+## Cognitive Care & Interactive Tools
+
+1. **Cognitive Anchor & Digital Reminiscence Therapy (DRT):**
+   - Accessible via the **Cognitive Anchor** tab. Designed to support users experiencing sundowning, disorientation, or memory loss (e.g., Dementia or Alzheimer's).
+   - **Immediate Comfort Anchor**: Displays a prominent "Anchor Me" button to play the narrator's pre-recorded grounding audio message.
+   - **Breathing Guide**: Synchronized concentric guide rings dynamically scale and pulse to coordinate deep breathing exercises (4-second inhale/exhale cycles) alongside the audio playback.
+   - **Memory Lane Timeline**: A blended chronological timeline displaying narrator's recorded life-story clips (playable directly) and family collaboration wall submissions (photos, memories, notes, and reflections).
+
+2. **Vocal Biomarker Analysis:**
+   - Visualized in **The Vault** (for Narrators) and **Preserved Archive** (for Recipients) views.
+   - Evaluates vocal parameters—**clarity, pitch, jitter, shimmer, and signal-to-noise ratio (SNR)**—either from Supabase-stored database columns or deterministic user-id seeding.
+   - Displays a custom SVG Neobrutalist line chart representing the history of clarity scores once at least 2 clips are recorded.
+   - Provides longitudinal tracking of neural/cognitive stability. If a decline of >8% from baseline is detected, warns families/caregivers of potential neuromuscular drift or disorientation.
+   - Code defensively verifies input params (`Array.isArray`) to avoid client crashes.
+
+3. **Lifecycle Audio & TTS Cleanup:**
+   - To prevent background audio leaks and page performance issues, all dashboard subviews containing audio playback or speech synthesis implement cleanup hooks. Upon component unmounting or tab exit, they pause active HTML5 Audio objects (`readAloudAudioRef`, `activeAudioRef`, `audioRef`) and clear the browser's TTS queue (`window.speechSynthesis.cancel()`).
+
+4. **Guided Onboarding Tour:**
+   - Multi-step interactive walkthrough card customized per user role (narrator vs recipient) to orient them with core features (e.g. Recording Prompts, Vault, Cognitive Anchor, AI Voice Companion).
+   - Highlights the current dashboard target with a pulsing sidebar border ring (`ring-4 ring-accent`) and inline pulsing "Guide" badges.
+   - The onboarding modal features visual carousel step indicators, a skip button, contextual action tips, and a spinning sparkles micro-animation.
 
 ---
 
@@ -87,13 +114,17 @@ Schema lives in [`scripts/living_legacy_migration.sql`](scripts/living_legacy_mi
 ## File Structure & Key Modules
 - `server.py` — main FastAPI application and endpoint routes.
 - `api/index.py` — Vercel entrypoint importing `server.app`.
-- `frontend/` — React application (Vite, Tailwind, components, pages).
+- `frontend/` — React application (Vite, Tailwind, components, pages):
+  - `public/manifest.json`: PWA installation manifest.
+  - `public/sw.js`: PWA cache-first service worker.
+  - `src/pages/Dashboard.jsx`: Main workspace housing layout, onboarding tour, Vocal Biomarker Charts, and Cognitive Anchor DRT views.
+  - `src/pages/LandingPage.jsx`: Main landing page with audio/video showcase and navbar/hero PWA download buttons.
+  - `src/pages/VerifyVoice.jsx`: Narrative voice signature verification panel.
 - `src/` — AI & performance layer:
   - `audio_pipeline.py`: Unified low-latency audio query engine & LRU cache.
   - `gemini_service.py`: STT, LLM chat, and clip ranking.
   - `search.py`: Fast local TF-IDF & LLM fallback search.
-  - `elevenlabs_service.py`: Instant voice cloning & low-latency TTS synthesis.
-  - `rumik_service.py`: Generic TTS synthesis.
+  - `rumik_service.py`: Wrapper calling ElevenLabs low-latency voice APIs with text normalization.
   - `guardrails.py`: Chatbot system prompts and regex backstop.
 - `scripts/living_legacy_migration.sql` — Supabase database schema and RLS policies.
 - `.env` — API keys and configuration settings.
