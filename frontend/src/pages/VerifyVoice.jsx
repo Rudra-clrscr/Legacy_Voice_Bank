@@ -47,7 +47,10 @@ export default function VerifyVoice() {
   };
 
   const processFile = async (selectedFile) => {
-    if (!selectedFile.type.startsWith('audio/')) {
+    const isAudioType = selectedFile.type.startsWith('audio/') || selectedFile.type === 'video/webm';
+    const hasAudioExtension = /\.(mp3|wav|webm|ogg|m4a|mp4|aac|opus)$/i.test(selectedFile.name);
+
+    if (!isAudioType && !hasAudioExtension) {
       setError("Please upload a valid audio file (MP3, WAV, WEBM, etc.)");
       setFile(null);
       setResult(null);
@@ -117,7 +120,7 @@ export default function VerifyVoice() {
             <input 
               type="file" 
               id="audio-upload"
-              accept="audio/*" 
+              accept="audio/*,video/webm,.webm,.mp3,.wav,.ogg,.m4a" 
               onChange={handleFileChange}
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
             />
