@@ -16,6 +16,42 @@ import {
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
 
+const handleDownloadClip = async (audioUrl, title) => {
+  if (!audioUrl) return;
+  
+  let downloadUrl = audioUrl;
+  if (audioUrl.startsWith('/')) {
+    downloadUrl = `${API}${audioUrl}`;
+  }
+  
+  const ext = audioUrl.split('.').pop().split('?')[0] || 'webm';
+  const sanitizedTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+  const filename = `${sanitizedTitle}.${ext}`;
+
+  try {
+    const response = await fetch(downloadUrl);
+    if (!response.ok) throw new Error("Network response was not ok");
+    const blob = await response.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (err) {
+    console.error("[Download] Fetch download failed, opening in new tab:", err);
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.target = '_blank';
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+};
+
 // Theme Presets for Guided Capture
 const PROMPT_THEMES = [
   {
@@ -2025,6 +2061,15 @@ function VaultView({ getHeaders, profile }) {
                   <Edit3 className="w-3.5 h-3.5" />
                   <span>Edit</span>
                 </button>
+                {clip.audio_url && (
+                  <button
+                    onClick={() => handleDownloadClip(clip.audio_url, clip.title)}
+                    className="flex items-center justify-center gap-1.5 text-xs border border-border hover:border-accent hover:text-accent px-3.5 py-2 rounded transition-all"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download</span>
+                  </button>
+                )}
                 <button
                   onClick={() => handleDelete(clip.id)}
                   className="flex items-center justify-center gap-1.5 text-xs border border-border hover:border-danger hover:text-danger px-3.5 py-2 rounded transition-all"
@@ -2849,7 +2894,16 @@ function ArchiveView({ getHeaders }) {
               </div>
 
               {clip.audio_url && (
-                <audio src={clip.audio_url.startsWith('http') ? clip.audio_url : `${API}${clip.audio_url}`} controls className="w-full" />
+                <div className="flex items-center gap-2">
+                  <audio src={clip.audio_url.startsWith('http') ? clip.audio_url : `${API}${clip.audio_url}`} controls className="flex-1" />
+                  <button
+                    onClick={() => handleDownloadClip(clip.audio_url, clip.title)}
+                    className="p-2 border border-border/60 rounded hover:border-accent hover:text-accent transition-all text-secondary shrink-0"
+                    title="Download Audio"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               )}
 
               {/* Vocal Health Diagnostics */}
