@@ -436,7 +436,8 @@ def get_clips(current_user=Depends(get_current_user)):
     try:
         if profile["role"] == "narrator":
             resp = client.table("clips").select("*").eq("patient_id", current_user.id).order("created_at", desc=True).execute()
-            return resp.data
+            data = [clip for clip in (resp.data or []) if not (clip.get("audio_url") or "").startswith("hash://")]
+            return data
         else:
             # Recipient: Get accessible clips
             recipient_email = current_user.email
@@ -480,7 +481,7 @@ def get_clips(current_user=Depends(get_current_user)):
                     # Requires executor approval
                     is_unlocked = narrators_activated.get(clip["patient_id"], False)
 
-                if is_unlocked:
+                if is_unlocked and not (clip.get("audio_url") or "").startswith("hash://"):
                     if clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids:
                         accessible_clips.append(clip)
                         
@@ -809,7 +810,7 @@ def ask_question(query: str, current_user=Depends(get_current_user)):
             elif clip["release_rule"] == "event":
                 is_unlocked = narrators_activated.get(clip["patient_id"], False)
 
-            if is_unlocked:
+            if is_unlocked and not (clip.get("audio_url") or "").startswith("hash://"):
                 if clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids or profile["role"] == "narrator":
                     clips_for_search.append(clip)
                     
@@ -917,7 +918,7 @@ def assistant_chat(body: dict, current_user=Depends(get_current_user)):
                             pass
                     elif clip["release_rule"] == "event":
                         is_unlocked = narrators_activated.get(clip["patient_id"], False)
-                    if is_unlocked and (clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids):
+                    if is_unlocked and (clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids) and not (clip.get("audio_url") or "").startswith("hash://"):
                         clips_for_search.append(clip)
 
                 narrator_name = "your loved one"
@@ -1064,7 +1065,7 @@ async def assistant_voice_loop(
                     patient_id = clip["patient_id"]
                     narrator_p = narrators_dict.get(patient_id, {})
                     is_unlocked = narrator_p.get("executor_activated", False)
-                if is_unlocked and (clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids):
+                if is_unlocked and (clip["visibility"] in ["shared", "family_archive"] or clip["id"] in granted_clip_ids) and not (clip.get("audio_url") or "").startswith("hash://"):
                     clips_for_search.append(clip)
 
             clip_context = ""
@@ -1177,7 +1178,36 @@ def register_voice_hash(patient_id: str, audio_bytes: bytes, transcript: str):
         }).execute()
         print(f"[Authenticity Registry] Registered voice hash {audio_hash[:8]}... for patient {patient_id}")
     except Exception as e:
-        print(f"[Authenticity Registry] Failed to register voice hash: {e}")
+        print(f"[Authenticity Registry] Supabase table insertion failed: {e}")
+        # Fallback: Store it in the clips table as a system-level private record
+        try:
+            # Find or create a session with theme = "Voice Registry" for this patient
+            session_id = None
+            sess_resp = client.table("sessions").select("id").eq("patient_id", patient_id).eq("theme", "Voice Registry").execute()
+            if sess_resp.data:
+                session_id = sess_resp.data[0]["id"]
+            else:
+                new_sess = client.table("sessions").insert({
+                    "patient_id": patient_id,
+                    "theme": "Voice Registry",
+                    "facilitator": "System"
+                }).execute()
+                if new_sess.data:
+                    session_id = new_sess.data[0]["id"]
+            
+            if session_id:
+                client.table("clips").insert({
+                    "session_id": session_id,
+                    "patient_id": patient_id,
+                    "title": f"Voice Signature: {audio_hash}",
+                    "audio_url": f"hash://{audio_hash}",
+                    "transcript": transcript,
+                    "release_rule": "never",
+                    "visibility": "private"
+                }).execute()
+                print(f"[Authenticity Registry] Fallback registered voice signature in clips table: {audio_hash[:8]}...")
+        except Exception as fallback_err:
+            print(f"[Authenticity Registry] Fallback registration failed: {fallback_err}")
 
 @app.put("/api/auth/voice-consent")
 def update_voice_consent(body: dict, current_user=Depends(get_current_user)):
@@ -1274,6 +1304,7 @@ async def verify_voice(file: UploadFile = File(...)):
     audio_hash = hashlib.sha256(audio_bytes).hexdigest()
     
     client = get_supabase()
+    # 1. Try querying voice_authenticity_registry
     try:
         resp = client.table("voice_authenticity_registry").select("*, profiles(name)").eq("audio_hash", audio_hash).execute()
         if resp.data:
@@ -1286,15 +1317,30 @@ async def verify_voice(file: UploadFile = File(...)):
                 "generated_at": record.get("generated_at"),
                 "transcript": record.get("transcript")
             }
-        else:
-            return {
-                "authentic": False,
-                "hash": audio_hash,
-                "message": "This audio file does not match any registered legacy voice prints. It may be unauthorized or modified."
-            }
     except Exception as e:
-        print(f"[Verify Voice] Error verifying audio hash: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to verify audio: {str(e)}")
+        print(f"[Verify Voice] Querying voice_authenticity_registry failed, trying fallback: {e}")
+
+    # 2. Fallback: Query clips table
+    try:
+        resp = client.table("clips").select("*, profiles(name)").eq("audio_url", f"hash://{audio_hash}").execute()
+        if resp.data:
+            record = resp.data[0]
+            narrator_name = record.get("profiles", {}).get("name", "Legacy Voice")
+            return {
+                "authentic": True,
+                "hash": audio_hash,
+                "narrator_name": narrator_name,
+                "generated_at": record.get("created_at"),
+                "transcript": record.get("transcript")
+            }
+    except Exception as fallback_err:
+        print(f"[Verify Voice] Fallback query failed: {fallback_err}")
+
+    return {
+        "authentic": False,
+        "hash": audio_hash,
+        "message": "This audio file does not match any registered legacy voice prints. It may be unauthorized or modified."
+    }
 
 @app.post("/api/verify-voice/hash")
 async def verify_voice_hash(body: dict):
@@ -1303,6 +1349,7 @@ async def verify_voice_hash(body: dict):
         raise HTTPException(status_code=400, detail="Hash parameter is required")
         
     client = get_supabase()
+    # 1. Try querying voice_authenticity_registry
     try:
         resp = client.table("voice_authenticity_registry").select("*, profiles(name)").eq("audio_hash", audio_hash).execute()
         if resp.data:
@@ -1315,14 +1362,30 @@ async def verify_voice_hash(body: dict):
                 "generated_at": record.get("generated_at"),
                 "transcript": record.get("transcript")
             }
-        return {
-            "authentic": False,
-            "hash": audio_hash,
-            "message": "This hash does not match any registered legacy voice prints."
-        }
     except Exception as e:
-        print(f"[Verify Voice] Error verifying hash: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"[Verify Voice] Querying voice_authenticity_registry failed, trying fallback: {e}")
+
+    # 2. Fallback: Query clips table
+    try:
+        resp = client.table("clips").select("*, profiles(name)").eq("audio_url", f"hash://{audio_hash}").execute()
+        if resp.data:
+            record = resp.data[0]
+            narrator_name = record.get("profiles", {}).get("name", "Legacy Voice")
+            return {
+                "authentic": True,
+                "hash": audio_hash,
+                "narrator_name": narrator_name,
+                "generated_at": record.get("created_at"),
+                "transcript": record.get("transcript")
+            }
+    except Exception as fallback_err:
+        print(f"[Verify Voice] Fallback query failed: {fallback_err}")
+
+    return {
+        "authentic": False,
+        "hash": audio_hash,
+        "message": "This hash does not match any registered legacy voice prints."
+    }
 
 
 @app.get("/api/recipient/narrators")

@@ -119,7 +119,8 @@ async def process_unified_voice_query(
         
         if role == "narrator":
             all_clips = supabase_client.table("clips").select("*").eq("patient_id", user_id).execute()
-            return profile, role, all_clips.data or [], profile, [], {}
+            filtered_clips = [clip for clip in (all_clips.data or []) if not (clip.get("audio_url") or "").startswith("hash://")]
+            return profile, role, filtered_clips, profile, [], {}
         else:
             connections = supabase_client.table("recipients").select("id, patient_id").eq("email", user_email).execute()
             if not connections.data:
@@ -155,7 +156,7 @@ async def process_unified_voice_query(
                     if narrator_p.get("executor_activated", False):
                         unlocked = True
                     
-                if unlocked and (clip.get("visibility") in ["shared", "family_archive"] or clip.get("id") in granted_ids):
+                if unlocked and (clip.get("visibility") in ["shared", "family_archive"] or clip.get("id") in granted_ids) and not (clip.get("audio_url") or "").startswith("hash://"):
                     unlocked_clips.append(clip)
             
             first_id = patient_ids[0] if patient_ids else None
