@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -11,7 +11,8 @@ import {
   Search, Image, FileText, Check, LogOut, Settings,
   AlertCircle, Calendar, Share2, MessageSquare, BookOpen,
   ArrowRight, Sparkles, RefreshCw, Bot, Send, AudioLines,
-  ShieldCheck, Download, Activity, TrendingUp
+  ShieldCheck, Download, Activity, TrendingUp, Sun, Moon,
+  HelpCircle, Music
 } from 'lucide-react';
 
 const API = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://127.0.0.1:8000' : '');
@@ -652,6 +653,7 @@ function RecordingStudio({ getHeaders, profile, setProfile }) {
   const [releaseDate, setReleaseDate] = useState('');
   const [releaseEventDesc, setReleaseEventDesc] = useState('');
   const [visibility, setVisibility] = useState('shared');
+  const [comfortCategory, setComfortCategory] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   const mediaRecorderRef = useRef(null);
@@ -843,6 +845,7 @@ function RecordingStudio({ getHeaders, profile, setProfile }) {
       if (releaseDate) formData.append('release_date', new Date(releaseDate).toISOString());
       if (releaseEventDesc) formData.append('release_event_desc', releaseEventDesc);
       formData.append('visibility', visibility);
+      if (comfortCategory) formData.append('comfort_category', comfortCategory);
       if (audioBlob) {
         formData.append('file', audioBlob, 'legacy_clip.webm');
       }
@@ -867,6 +870,7 @@ function RecordingStudio({ getHeaders, profile, setProfile }) {
       setTranscript('');
       setTitle('');
       setRecordingTime(0);
+      setComfortCategory('');
     } catch (err) {
       console.error(err);
       toast.error('Failed to preserve audio clip.');
@@ -1084,6 +1088,25 @@ function RecordingStudio({ getHeaders, profile, setProfile }) {
                     <option value="private">Strictly Private (Just Me)</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="border-t border-border pt-4">
+                <label className="block text-[10px] text-secondary uppercase tracking-widest mb-1.5 font-semibold">Comfort Purpose (Optional)</label>
+                <select
+                  value={comfortCategory}
+                  onChange={(e) => setComfortCategory(e.target.value)}
+                  className="w-full bg-background border border-border rounded px-3 py-2 text-sm text-primary outline-none focus:border-accent/40"
+                >
+                  <option value="">None — general legacy clip</option>
+                  <option value="grounding">Grounding &amp; Calm</option>
+                  <option value="nighttime">Nighttime Comfort</option>
+                  <option value="reassurance">Reassurance (answers a repeated question)</option>
+                  <option value="identity">Who's Who (Identity)</option>
+                  <option value="favorite">Favorite Song or Story</option>
+                </select>
+                <p className="text-[10px] text-secondary mt-1.5 leading-relaxed">
+                  Tag this clip so it can be found instantly in the Cognitive Anchor tab during a moment of confusion or anxiety.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-border pt-4">
@@ -3962,39 +3985,237 @@ function SignaturePad({ onSave, onCancel }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT: Reality Orientation Card
+// ─────────────────────────────────────────────────────────────────────────────
+// Digitizes the paper "orientation board" used in dementia care: predictable
+// date/time/context cues reduce disorientation-driven anxiety.
+function OrientationCard({ latestUpdate }) {
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const hour = now.getHours();
+  const greeting = hour < 5 ? 'Good Night' : hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : hour < 21 ? 'Good Evening' : 'Good Night';
+  const dateLabel = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const timeLabel = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
+  return (
+    <div className="bg-surface border-2 border-border rounded-xl p-5 shadow-[4px_4px_0px_#2A160D] flex flex-col md:flex-row md:items-center md:justify-between gap-4 font-sans">
+      <div className="flex items-center gap-3">
+        <div className="w-11 h-11 rounded-full bg-accent/15 border border-accent/20 flex items-center justify-center shrink-0">
+          <Sun className="w-5 h-5 text-accent" />
+        </div>
+        <div>
+          <p className="text-[10px] text-secondary uppercase tracking-widest font-bold">{greeting}</p>
+          <h3 className="font-serif font-bold text-primary text-base">{dateLabel}</h3>
+          <p className="text-xs text-secondary">It's currently {timeLabel}. You are safe and cared for.</p>
+        </div>
+      </div>
+      {latestUpdate && (
+        <div className="bg-background/40 border border-border/60 rounded-lg px-4 py-2.5 max-w-xs">
+          <p className="text-[9px] text-secondary uppercase tracking-widest font-bold mb-0.5">Latest From Family</p>
+          <p className="text-[11px] text-primary line-clamp-2">{latestUpdate}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT: Sundowning Usage Pattern Chart (Custom SVG, matches VocalBiomarkerChart)
+// ─────────────────────────────────────────────────────────────────────────────
+const DAYPARTS = [
+  { id: 'night', label: 'Night', range: [0, 5] },
+  { id: 'early', label: 'Early Morning', range: [6, 8] },
+  { id: 'morning', label: 'Morning', range: [9, 11] },
+  { id: 'afternoon', label: 'Afternoon', range: [12, 15] },
+  { id: 'evening', label: 'Evening', range: [16, 19] }, // sundowning window (4-8pm)
+  { id: 'late', label: 'Late Evening', range: [20, 23] },
+];
+
+function SundowningPatternChart({ logs }) {
+  const bucketCounts = useMemo(() => {
+    const counts = DAYPARTS.map(() => 0);
+    (logs || []).forEach(log => {
+      const hour = new Date(log.created_at).getHours();
+      const idx = DAYPARTS.findIndex(d => hour >= d.range[0] && hour <= d.range[1]);
+      if (idx >= 0) counts[idx] += 1;
+    });
+    return counts;
+  }, [logs]);
+
+  const total = bucketCounts.reduce((a, b) => a + b, 0);
+
+  if (total < 5) {
+    return (
+      <div className="bg-surface/50 border-2 border-border p-5 rounded-xl text-center space-y-2 font-sans shadow-sm">
+        <h3 className="font-serif font-bold text-sm text-primary flex items-center justify-center gap-1.5">
+          <Activity className="w-4 h-4 text-accent animate-pulse" />
+          <span>Sundowning Usage Pattern</span>
+        </h3>
+        <p className="text-[11px] text-secondary leading-relaxed max-w-xs mx-auto">
+          Use "Anchor Me" a few more times ({total}/5 logged) to unlock a chart of when comfort is needed most during the day.
+        </p>
+      </div>
+    );
+  }
+
+  const eveningIdx = DAYPARTS.findIndex(d => d.id === 'evening');
+  const eveningShare = bucketCounts[eveningIdx] / total;
+  const sundowningFlag = eveningShare >= 0.4;
+
+  const width = 450;
+  const height = 180;
+  const padding = 30;
+  const chartWidth = width - padding * 2;
+  const chartHeight = height - padding * 2;
+  const maxCount = Math.max(...bucketCounts, 1);
+  const barGap = 10;
+  const barWidth = (chartWidth - barGap * (DAYPARTS.length - 1)) / DAYPARTS.length;
+
+  return (
+    <div className="bg-surface border-2 border-border p-5 rounded-xl shadow-[4px_4px_0px_#2A160D] space-y-4 font-sans">
+      <div className="flex justify-between items-start flex-wrap gap-2">
+        <div>
+          <h3 className="font-serif font-bold text-base text-primary flex items-center gap-1.5">
+            <Activity className="w-4 h-4 text-accent" />
+            <span>Sundowning Usage Pattern</span>
+          </h3>
+          <p className="text-[10px] text-secondary leading-relaxed">
+            When the Comfort Anchor is used most, across {total} logged moments.
+          </p>
+        </div>
+        <span className={`text-[9px] px-2 py-0.5 rounded border font-bold uppercase tracking-wider ${
+          sundowningFlag ? 'text-danger border-danger bg-danger/10' : 'text-accent border-accent bg-accent/10'
+        }`}>
+          {sundowningFlag ? 'Evening Clustering Detected' : 'No Strong Pattern Yet'}
+        </span>
+      </div>
+
+      <div className="w-full overflow-x-auto select-none pt-2">
+        <svg viewBox={`0 0 ${width} ${height}`} className="mx-auto w-full max-w-lg overflow-visible">
+          {[0, 0.25, 0.5, 0.75, 1].map(frac => {
+            const y = padding + chartHeight - frac * chartHeight;
+            return (
+              <line key={frac} x1={padding} y1={y} x2={width - padding} y2={y} stroke="var(--color-border)" strokeWidth="1" strokeDasharray="3" className="opacity-15" />
+            );
+          })}
+
+          {DAYPARTS.map((part, i) => {
+            const barHeight = (bucketCounts[i] / maxCount) * chartHeight;
+            const x = padding + i * (barWidth + barGap);
+            const y = padding + chartHeight - barHeight;
+            const isEvening = part.id === 'evening';
+            return (
+              <g key={part.id} className="group cursor-pointer">
+                <rect
+                  x={x} y={y} width={barWidth} height={Math.max(barHeight, 1)}
+                  rx="3"
+                  className={isEvening && sundowningFlag ? 'fill-danger' : 'fill-accent'}
+                  opacity={bucketCounts[i] === 0 ? 0.15 : isEvening ? 0.9 : 0.6}
+                />
+                <text x={x + barWidth / 2} y={height - padding + 12} textAnchor="middle" className="text-[7px] font-sans font-bold fill-primary">
+                  {part.label.split(' ')[0]}
+                </text>
+                <title>{`${part.label}: ${bucketCounts[i]} use${bucketCounts[i] === 1 ? '' : 's'}`}</title>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+
+      {sundowningFlag && (
+        <p className="text-[10px] text-danger bg-danger/10 border border-danger/30 rounded-lg px-3 py-2 leading-relaxed">
+          Comfort anchor usage is clustering in the early evening — a pattern consistent with sundowning. Consider morning bright-light exposure and a consistent evening routine to help ease this window.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // NARRATOR & RECIPIENT COMPONENT: Cognitive Anchor & DRT View
 // ─────────────────────────────────────────────────────────────────────────────
+const COMFORT_CATEGORIES = [
+  { id: 'grounding', label: 'Grounding & Calm', icon: Heart },
+  { id: 'nighttime', label: 'Nighttime Comfort', icon: Moon },
+  { id: 'reassurance', label: 'Reassurance', icon: HelpCircle },
+  { id: 'identity', label: "Who's Who", icon: Users },
+  { id: 'favorite', label: 'Favorite Song/Story', icon: Music },
+];
+
 function CognitiveAnchorView({ getHeaders, role }) {
   const [clips, setClips] = useState([]);
   const [collabItems, setCollabItems] = useState([]);
+  const [comfortLogs, setComfortLogs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [anchorClip, setAnchorClip] = useState(null);
+  const [activeCategory, setActiveCategory] = useState(null);
+  const [legacyAnchorClip, setLegacyAnchorClip] = useState(null);
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef(null);
   const [breathText, setBreathText] = useState("Inhale...");
-  
+
   const [playingClipId, setPlayingClipId] = useState(null);
   const activeAudioRef = useRef(null);
 
   useEffect(() => {
     Promise.all([
       axios.get(`${API}/api/clips`, getHeaders()),
-      axios.get(`${API}/api/collab`, getHeaders()).catch(() => ({ data: [] }))
+      axios.get(`${API}/api/collab`, getHeaders()).catch(() => ({ data: [] })),
+      axios.get(`${API}/api/comfort-logs`, getHeaders()).catch(() => ({ data: [] }))
     ])
-      .then(([clipsRes, collabRes]) => {
+      .then(([clipsRes, collabRes, logsRes]) => {
         setClips(clipsRes.data);
         setCollabItems(collabRes.data || []);
-        
-        const found = clipsRes.data.find(c => 
-          c.title.toLowerCase().includes('grounding') || 
-          c.title.toLowerCase().includes('anchor') || 
-          c.title.toLowerCase().includes('comfort')
-        ) || clipsRes.data[0];
-        setAnchorClip(found);
+        setComfortLogs(logsRes.data || []);
+
+        const categorized = (clipsRes.data || []).filter(c => c.comfort_category);
+        if (categorized.length > 0) {
+          const firstAvailable = COMFORT_CATEGORIES.find(cat => categorized.some(c => c.comfort_category === cat.id));
+          setActiveCategory(firstAvailable ? firstAvailable.id : null);
+        } else {
+          // Legacy fallback for clips recorded before comfort tagging existed
+          const found = clipsRes.data.find(c =>
+            c.title.toLowerCase().includes('grounding') ||
+            c.title.toLowerCase().includes('anchor') ||
+            c.title.toLowerCase().includes('comfort')
+          ) || clipsRes.data[0];
+          setLegacyAnchorClip(found || null);
+        }
       })
       .catch(() => toast.error('Failed to load memory lane.'))
       .finally(() => setLoading(false));
   }, [getHeaders]);
+
+  const comfortClipsByCategory = useMemo(() => {
+    const map = {};
+    clips.forEach(c => {
+      if (!c.comfort_category) return;
+      if (!map[c.comfort_category]) map[c.comfort_category] = [];
+      map[c.comfort_category].push(c);
+    });
+    Object.keys(map).forEach(key => {
+      map[key].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    });
+    return map;
+  }, [clips]);
+
+  const availableCategories = COMFORT_CATEGORIES.filter(cat => (comfortClipsByCategory[cat.id] || []).length > 0);
+
+  const anchorClip = (activeCategory && comfortClipsByCategory[activeCategory]?.length)
+    ? comfortClipsByCategory[activeCategory][0]
+    : legacyAnchorClip;
+
+  const latestUpdateText = useMemo(() => {
+    const merged = [
+      ...clips.map(c => ({ created_at: c.created_at, text: c.transcript ? `"${c.transcript.slice(0, 80)}${c.transcript.length > 80 ? '…' : ''}"` : null })),
+      ...collabItems.map(i => ({ created_at: i.created_at, text: i.content ? `${i.author_name || 'Family'}: "${i.content.slice(0, 80)}${i.content.length > 80 ? '…' : ''}"` : null }))
+    ].filter(i => i.text).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return merged[0]?.text || null;
+  }, [clips, collabItems]);
 
   useEffect(() => {
     if (!playing) return;
@@ -4021,7 +4242,7 @@ function CognitiveAnchorView({ getHeaders, role }) {
       toast.error("No grounding anchor recording found.");
       return;
     }
-    
+
     // Stop timeline clip if playing
     if (playingClipId) {
       if (activeAudioRef.current) {
@@ -4029,7 +4250,7 @@ function CognitiveAnchorView({ getHeaders, role }) {
       }
       setPlayingClipId(null);
     }
-    
+
     if (playing) {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -4042,6 +4263,11 @@ function CognitiveAnchorView({ getHeaders, role }) {
       audio.play();
       setPlaying(true);
       audio.onended = () => setPlaying(false);
+
+      // Best-effort sundowning usage log — never blocks playback or surfaces errors
+      axios.post(`${API}/api/comfort-logs`, { category: anchorClip.comfort_category || activeCategory || null }, getHeaders())
+        .then(res => setComfortLogs(prev => [res.data, ...prev]))
+        .catch(() => {});
     }
   };
 
@@ -4080,6 +4306,8 @@ function CognitiveAnchorView({ getHeaders, role }) {
         </p>
       </div>
 
+      {!loading && <OrientationCard latestUpdate={latestUpdateText} />}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 font-sans">
         <div className="lg:col-span-5 bg-surface border-2 border-border p-6 rounded-xl shadow-[4px_4px_0px_#2A160D] space-y-6 flex flex-col justify-between">
           <div className="space-y-2">
@@ -4091,6 +4319,29 @@ function CognitiveAnchorView({ getHeaders, role }) {
               When a loved one experiences anxiety, sundowning, or disorientation, press this button to play a familiar grounding message.
             </p>
           </div>
+
+          {availableCategories.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {availableCategories.map(cat => {
+                const CatIcon = cat.icon;
+                const isActive = activeCategory === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setActiveCategory(cat.id)}
+                    className={`inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wide px-2.5 py-1.5 rounded-full border transition-all ${
+                      isActive
+                        ? 'bg-accent text-background border-accent'
+                        : 'bg-background/40 text-secondary border-border hover:border-accent/40 hover:text-primary'
+                    }`}
+                  >
+                    <CatIcon className="w-3 h-3" />
+                    {cat.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <div className="flex flex-col items-center justify-center py-6">
             <div className="relative flex items-center justify-center w-48 h-48">
@@ -4138,7 +4389,7 @@ function CognitiveAnchorView({ getHeaders, role }) {
               </div>
             ) : (
               <p className="text-[10px] text-secondary">
-                No custom grounding clip detected. Record a clip titled "Grounding Anchor" in the Recording Studio to set a customized comfort voice message.
+                No comfort clip tagged yet. Tag a clip's "Comfort Purpose" in the Recording Studio to set a customized comfort voice message here.
               </p>
             )}
           </div>
@@ -4237,6 +4488,8 @@ function CognitiveAnchorView({ getHeaders, role }) {
           )}
         </div>
       </div>
+
+      {!loading && <SundowningPatternChart logs={comfortLogs} />}
     </div>
   );
 }

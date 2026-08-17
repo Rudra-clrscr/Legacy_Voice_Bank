@@ -498,6 +498,7 @@ async def upload_clip(
     release_date: Optional[str] = Form(None),
     release_event_desc: Optional[str] = Form(None),
     visibility: str = Form("shared"),
+    comfort_category: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     current_user=Depends(get_current_user)
 ):
@@ -546,12 +547,15 @@ async def upload_clip(
             insert_data["release_date"] = release_date
         if release_event_desc:
             insert_data["release_event_desc"] = release_event_desc
-            
+        if comfort_category:
+            insert_data["comfort_category"] = comfort_category
+
         try:
             resp = client.table("clips").insert(insert_data).execute()
         except Exception as db_err:
-            print(f"[Supabase DB] insert with vocal_metrics failed, retrying without it: {db_err}")
+            print(f"[Supabase DB] insert with vocal_metrics/comfort_category failed, retrying without them: {db_err}")
             insert_data.pop("vocal_metrics", None)
+            insert_data.pop("comfort_category", None)
             resp = client.table("clips").insert(insert_data).execute()
 
         return resp.data[0]
@@ -746,6 +750,65 @@ def create_collab_item(body: dict, current_user=Depends(get_current_user)):
         }).execute()
         return resp.data[0]
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/comfort-logs")
+def get_comfort_logs(current_user=Depends(get_current_user)):
+    """Fetch Cognitive Anchor playback events, used to chart sundowning usage patterns."""
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+
+    if profile["role"] == "narrator":
+        target_patient_id = current_user.id
+    else:
+        connections = client.table("recipients").select("patient_id").eq("email", current_user.email).execute()
+        if not connections.data:
+            return []
+        target_patient_id = connections.data[0]["patient_id"]
+
+    try:
+        resp = (
+            client.table("comfort_anchor_logs")
+            .select("*")
+            .eq("patient_id", target_patient_id)
+            .order("created_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        return resp.data
+    except Exception as e:
+        print(f"[comfort-logs] fetch failed (has the DRT migration been run?): {e}")
+        return []
+
+
+@app.post("/api/comfort-logs")
+def create_comfort_log(body: dict, current_user=Depends(get_current_user)):
+    """Log a Cognitive Anchor comfort-clip playback event (best-effort telemetry)."""
+    client = get_supabase()
+    profile = get_user_profile(current_user.id)
+
+    patient_id = body.get("patient_id")
+    if not patient_id:
+        if profile["role"] == "narrator":
+            patient_id = current_user.id
+        else:
+            connections = client.table("recipients").select("patient_id").eq("email", current_user.email).execute()
+            if not connections.data:
+                raise HTTPException(status_code=400, detail="No connected patient found")
+            patient_id = connections.data[0]["patient_id"]
+
+    category = body.get("category")
+
+    try:
+        resp = client.table("comfort_anchor_logs").insert({
+            "patient_id": patient_id,
+            "triggered_by": current_user.id,
+            "category": category
+        }).execute()
+        return resp.data[0]
+    except Exception as e:
+        print(f"[comfort-logs] insert failed (has the DRT migration been run?): {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
